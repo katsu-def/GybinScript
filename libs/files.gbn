@@ -6,24 +6,18 @@ func _sys_cwd() -> str
   return $sys.cwd()
 end
 
-func _path_exists(_path: str) -> bool
-
-  if $_path is NULL
-    $_path = "."
-  end
-
-  return $sys.path_exists(_path)
-end
 
 func _cp_path(_path: str, _new_path: str) -> NULL
   $sys.cp_path(_path, _new_path)
 end
 
+
 func _mv_path(_path: str, _new_path: str) -> NULL
   $sys.mv_path(_path, _new_path)
 end
 
-func _list_dir(_path: str) -> array[str]
+
+func _list_dir(_path: str) -> array
 
   if $_path is NULL
     $_path = "."
@@ -32,16 +26,19 @@ func _list_dir(_path: str) -> array[str]
   return $sys.list_dir(_path)
 end
 
+
 func _mk_dir(_path: str) -> NULL
   $sys.mk_dir(_path)
 end
+
 
 func _rm_dir(_path: str) -> NULL
   $sys.rm_dir(_path)
 end
 
-!*func _file_read(_path: str) -> str
-  return $f.read(_path)
+
+!*func _dir_parent(_path: str) -> any
+  return $sys.path_parent($_path)
 end!*
 
 func _file_name(_path: str, _ext: bool) -> str
@@ -50,21 +47,21 @@ func _file_name(_path: str, _ext: bool) -> str
     $_ext = true
   end
 
+
   return $sys.file_name(_path, _ext)
 end
+
 
 func _rm_file(_path: str) -> NULL
   $sys.rm_file(_path)
 end
 
-!*func _file_suffix(_path: str) -> str
+
+func _file_suffix(_path: str) -> str
   return $sys.file_suffix(_path)
-end!*
+end
 
-!*func _sys_exists(_path: str) -> bool
-  return $sys.exists(_path)
-end!*
 
-!*func _sys_list_dir(_path: str) -> array
+func _sys_list_dir(_path: str) -> array
   return $sys.list_dir(_path)
-end!*
+end

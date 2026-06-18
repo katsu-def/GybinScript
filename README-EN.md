@@ -644,10 +644,18 @@ $free($my_variable)
 
 ### `expand_memory` — Increase the Limit
 
-Increases the maximum number of available memory slots:
+> ! Increases the maximum number of available memory slots:
 
 ```gbn
 $expand_memory(512)
+```
+
+### `breakpoint` — pause execution
+
+Pauses execution and provides a memory summary:
+
+```gbn
+$breakpoint()
 ```
 
 This emits a warning to `stderr` indicating the change.

@@ -1,7 +1,13 @@
 #!/home/katsu/Proyectos/GybinScript/Core/Gybin.py
 
-func init() -> void
-    $print("GBN version " + $GBN.VERSION + "\nBy " + $GBN.AUTHOR + " available now!")
+@use files
+
+func init() -> NULL
+    $print("GBN version " + $GBN.VERSION + " available now!" + "\nBy " + $GBN.AUTHOR)
+
+    $breakpoint()
+
+    $print($_list_dir("Core/"))
 end
 
 run

@@ -208,12 +208,13 @@ def parse_function_header(line: str) -> tuple[str, list[str], str]:
         func_part = header
         return_type = "any"
 
-    if not func_part.strip().endswith(")"):
+    func_part = func_part.strip()
+    if not func_part.endswith(")"):
         raise SyntaxError("Invalid function header: missing closing parenthesis")
 
     name, args_text = func_part.split("(", 1)
     name = name.strip()
-    args_text = args_text[:-1].strip()
+    args_text = args_text[:-1].strip()  # remove trailing )
     params = [arg.strip() for arg in args_text.split(",") if arg.strip()] if args_text else []
     if not name:
         raise SyntaxError("Invalid function header: missing function name")

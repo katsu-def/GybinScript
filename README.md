@@ -653,7 +653,15 @@ Aumenta el número máximo de slots disponibles:
 $expand_memory(512)
 ```
 
-Esto emite una advertencia en `stderr` indicando el cambio.
+> ! Esto emite una advertencia en `stderr` indicando el cambio.
+
+### `breakpoint` — pausar ejecución
+
+Pausa la ejecución y da un resumen de la memoria:
+
+```gbn
+$breakpoint()
+```
 
 ### Caché de expresiones
 

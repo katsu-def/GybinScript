@@ -504,11 +504,25 @@ class FunctionDefinition:
         local_memory = MemoryManager(parent=parent_memory)
         for index, param in enumerate(self.params):
             # Extraer solo el nombre del parámetro (antes de ":")
-            param_name = param.split(":")[0].strip() if ":" in param else param.strip()
+            if ":" in param:
+                param_name, _ptype_raw = param.split(":", 1)
+                param_name = param_name.strip()
+                param_annotation = _ptype_raw.strip().lower()
+            else:
+                param_name = param.strip()
+                param_annotation = "any"
 
             if index < len(args):
                 value = args[index]
                 type_name = infer_type(value)
+                # Validate the argument type against the parameter annotation
+                if param_annotation and param_annotation != "any" and value is not None:
+                    expected_type = TYPE_MAP.get(param_annotation)
+                    if expected_type is not None and not isinstance(value, expected_type):
+                        raise TypeError(
+                            f"Function '{self.name}': argument '{param_name}' expected {param_annotation}, "
+                            f"got {type(value).__name__}"
+                        )
                 local_memory.allocate(param_name, type_name, value)
             else:
                 local_memory.allocate(param_name, "any", None)
@@ -517,7 +531,16 @@ class FunctionDefinition:
             process_source_lines(self.body, local_memory, current_dir, trace=False, source_path=source_path,
                                   line_offset=self.defined_line or 0)
         except ReturnSignal as return_signal:
-            return return_signal.value
+            ret_val = return_signal.value
+            # Validate return value type against declared return_type
+            if self.return_type not in ("any", "NULL") and ret_val is not None:
+                expected = TYPE_MAP.get(self.return_type)
+                if expected is not None and not isinstance(ret_val, expected):
+                    raise TypeError(
+                        f"Function '{self.name}': return type declared as '{self.return_type}', "
+                        f"but got {type(ret_val).__name__}"
+                    )
+            return ret_val
 
         # Unused local variable warnings
         if WARNINGS:
@@ -1210,6 +1233,23 @@ def assign_value_to_variable(target: str, value: Value, memory_manager: MemoryMa
 
 def define_function(header: str, body: list[str], memory_manager: MemoryManager, source_path: Path | None = None) -> None:
     name, params, return_type = parse_function_header(header)
+
+    # Validate return type annotation
+    _VALID_RETURN_TYPES = set(TYPE_MAP.keys()) | {"NULL", "any"}
+    if return_type not in _VALID_RETURN_TYPES:
+        raise TypeError(f"Function '{name}': invalid return type '{return_type}'. Valid types: {sorted(_VALID_RETURN_TYPES)}")
+
+    # Validate parameter type annotations using parse_annotation (handles array[T], dict[K,V], etc.)
+    for param in params:
+        if ":" in param:
+            _pname, _ptype_raw = param.split(":", 1)
+            _ptype_clean = _ptype_raw.strip()
+            if _ptype_clean:
+                try:
+                    parse_annotation(_ptype_clean)
+                except TypeError as _ann_err:
+                    raise TypeError(f"Function '{name}': invalid type annotation '{_ptype_clean}' for parameter '{_pname.strip()}': {_ann_err}") from _ann_err
+
     memory_manager.allocate(name, "any", FunctionDefinition(name=name, params=params, body=body, return_type=return_type, source_path=source_path, defined_line=_CURRENT_LINE), defined_line=_CURRENT_LINE)
 
 
@@ -1553,10 +1593,63 @@ def execute_expand_memory_statement(line: str, memory_manager: MemoryManager, cu
     return True
 
 
-def execute_runtime_statement(line: str, memory_manager: MemoryManager, current_dir: Path) -> bool:
+def _execute_breakpoint(memory_manager: MemoryManager, current_dir: Path, source_path: Path | None = None) -> None:
+    """Interactive debugger breakpoint.
+    Prints current memory state and opens a mini REPL where the user can evaluate
+    GBN expressions against the live memory. Type 'continue' or press Ctrl-D to resume."""
+    import sys as _sys
+    header = "=" * 60
+    print(header, file=_sys.stderr)
+    print("  BREAKPOINT", file=_sys.stderr)
+    if source_path:
+        print(f"  File: {source_path}  Line: {_CURRENT_LINE}", file=_sys.stderr)
+    print(header, file=_sys.stderr)
+
+    # Print all visible slots (skip builtins and callables)
+    from Core.native_io import BUILTIN_FUNCTIONS as _BF
+    _builtin_names = set(_BF.keys())
+    _mgr: MemoryManager | None = memory_manager
+    _scope_label = "local"
+    while _mgr is not None:
+        slots_to_show = {
+            k: v for k, v in _mgr._slots.items()
+            if k not in _builtin_names and not callable(v.value)
+        }
+        if slots_to_show:
+            print(f"  [{_scope_label} scope]", file=_sys.stderr)
+            for k, slot in slots_to_show.items():
+                print(f"    {slot.type_name} {k} = {slot.value!r}", file=_sys.stderr)
+        _mgr = _mgr.parent
+        _scope_label = "outer"
+    print(header, file=_sys.stderr)
+    print("  Type a GBN expression to evaluate, or 'continue' / Ctrl-D to resume.", file=_sys.stderr)
+    print(header, file=_sys.stderr)
+
+    while True:
+        try:
+            raw = input("breakpoint> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nResuming...", file=_sys.stderr)
+            break
+        if raw in ("continue", "cont", "c", "exit", "quit", ""):
+            print("Resuming...", file=_sys.stderr)
+            break
+        try:
+            result = evaluate_expression(raw, memory_manager, current_dir)
+            print(f"  => {result!r}")
+        except Exception as _bp_err:
+            print(f"  Error: {_bp_err}", file=_sys.stderr)
+
+
+def execute_runtime_statement(line: str, memory_manager: MemoryManager, current_dir: Path, source_path: Path | None = None) -> bool:
     if execute_free_statement(line, memory_manager):
         return True
     if execute_expand_memory_statement(line, memory_manager, current_dir):
+        return True
+    # Accept both `$breakpoint()` and `breakpoint()`
+    _bp_normalized = line[1:] if line.startswith("$") else line
+    if _bp_normalized in ("breakpoint()", "breakpoint"):
+        _execute_breakpoint(memory_manager, current_dir, source_path=source_path)
         return True
     if line == "run":
         run_program(memory_manager, current_dir)
@@ -1679,7 +1772,7 @@ def execute_source_line(
     if next_index is not None:
         return next_index
 
-    if execute_runtime_statement(line, memory_manager, current_dir):
+    if execute_runtime_statement(line, memory_manager, current_dir, source_path=source_path):
         return index + 1
     if execute_assignment_or_expression_statement(line, memory_manager, current_dir):
         return index + 1

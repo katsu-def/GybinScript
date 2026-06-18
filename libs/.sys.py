@@ -75,7 +75,7 @@ def path_exists(file_path: str) -> bool:
 
 def path_parent(file_path: str):
     route = Path(file_path)
-    return route.parent
+    return route.parent()
 
 
 def cp_path(file_path: str, new_path: str) -> None:
@@ -115,8 +115,9 @@ def rm_file(file_path: str) -> None:
         content = _file.read()
     return content"""
 
-#def file_suffix(file_path: str) -> str:
-#    return Path(file_path).suffix
+def file_suffix(file_path: str) -> str:
+    return Path(file_path).suffix
+
 
 # OS
 
@@ -151,6 +152,8 @@ def json_load(files: str):
 
 def json_read(entry: str):
     return json.loads(entry)
+
+
 """
 
 def key_write(text: str = "") -> None:
