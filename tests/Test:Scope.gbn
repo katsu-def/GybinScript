@@ -1,0 +1,9 @@
+var global: int = 100
+
+func test() -> NULL
+    var global: int = 50 -- Redefinición de la variable global
+    $print($global) -- El print no sabe a que función llamar, así que lanza error.
+end
+
+$test()
+$print($global)

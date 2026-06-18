@@ -1,0 +1,20 @@
+-- Prueba de comportamiento de clases simples.
+
+class Player
+    var name: str[32] = NULL -- La declaración de objetos vacíos debe ser explícita.
+    var hp: int = NULL
+
+    func init(self, name: str[32]) -> NULL -- "self" hace referencia así mismo, se obtiene por si mismo en una clase.
+        $self.name = $name
+        $self.hp = 100
+    end
+end
+
+func init()
+    var p: any = $Player("Juan")
+
+    $print($p.name)
+    $print($p.hp)
+end
+
+run

@@ -1,0 +1,12 @@
+var age: int = 20
+var pi: float = 3.1416
+var alive: bool = true
+var name: str[16] = "Carlos"
+
+$print($age)
+$print($pi)
+$print($alive)
+$print($name)
+
+$age = 50
+$pi = 2

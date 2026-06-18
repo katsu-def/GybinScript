@@ -1,0 +1,7 @@
+-- Punteros, no terminado.
+
+var hp: int = 100
+var ref = $$hp
+
+
+$print($ref)

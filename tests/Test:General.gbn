@@ -1,0 +1,43 @@
+-- Prueba de comportamiento general.
+
+enum ItemType = {WEAPON, ARMOR, CONSUMABLE}
+
+class Item
+    var name: str[32] = NULL
+    var type: any = NULL
+
+    func init(self, name: str[32], type: ItemType) -> NULL
+        $self.name = $name
+        $self.type = $type
+    end
+
+end
+
+class Player
+    var name: str[32] = NULL
+    var hp: int = NULL
+
+    var inventory: array[any] = []
+
+    func init(self, name: str[32]) -> NULL
+        $self.name = $name
+        $self.hp = 100
+    end
+
+    func add_item(self, item: any) -> NULL
+        $self.inventory.append($item)
+    end
+
+end
+
+var player: any = $Player("Hero")
+
+func init() -> NULL
+    $player.add_item($Item("Sword", $ItemType.WEAPON))
+    $player.add_item($Item("Potion", $ItemType.CONSUMABLE))
+
+    $print($player.inventory[0].name)
+    $print($player.inventory[1].name)
+end
+
+run

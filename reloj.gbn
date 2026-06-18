@@ -1,0 +1,9 @@
+#!/home/katsu/Proyectos/GybinScript/Core/Gybin.py
+
+@use time
+
+func init() -> NULL
+    $print($_format_time())
+end
+
+run

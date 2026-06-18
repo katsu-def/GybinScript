@@ -1,0 +1,27 @@
+-- Prueba de comportamientos objetos dentro de arrays.
+
+class Enemy
+    var hp: int = NULL
+
+    func init(self, hp: int) -> NULL
+        $self.hp = $hp
+    end
+
+end
+
+!* NOTA IMPORTANTE: El interprete ignora objetos con "NULL" hasta que cambias su valor, en una variable
+tipo array es mejor iniciarla con [] si aún no tiene nada para el momento de declararla, o dará error
+de no declaración si intentas añadir un objeto. !*
+
+-- Se recomienda usar "any" solo en momentos muy específicos, como variables que contienen clases enteras.
+var enemies: array[any] = []
+
+func init() -> NULL
+    $enemies.append($Enemy(10))
+    $enemies.append($Enemy(20))
+    $enemies.append($Enemy(30))
+
+    $print($enemies[2].hp)
+end
+
+run

@@ -1,0 +1,82 @@
+-- Standar library
+
+class Engine
+  const VERSION: str[8] = "1.3.0"
+  const AUTHOR: str[10] = "Katsu Dev"
+end
+
+var GBN: any = $Engine()
+
+
+func contains(collection: array, element: any) -> bool
+  for item in $collection
+    if $item is $element
+      return true
+    end
+  end
+  return false
+end
+
+func index_of(collection: array, element: any) -> int
+  var position: int = 0
+  for $item in $collection
+    if $item is $element
+      return $position
+    end
+    $position = $position + 1
+  end
+  return -1
+end
+
+func str_split(text: str[1024], delimiter: str[64]) -> array
+  return text.split(delimiter)
+end
+
+func str_join(separator: str[64], items: array) -> str
+  var result: str = ""
+  var first: bool = true
+  for $item in $items
+    if first
+      $result = $item
+      $first = false
+    else
+      $result = $result + $separator + $item
+    end
+  end
+  return $result
+end
+
+func to_lower(text: str[1024]) -> str
+  return $text.lower()
+end
+
+func to_upper(text: str[1024]) -> str
+  return $text.upper()
+end
+
+func starts_with(text: str[1024], prefix: str[256]) -> bool
+  return $text.startswith($prefix)
+end
+
+func ends_with(text: str[1024], suffix: str[256]) -> bool
+  return $text.endswith($suffix)
+end
+
+func has_key(mapping: dict, key: any) -> bool
+  return $key in $mapping
+end
+
+func input(prompt: str[256]) -> str
+  if $prompt is NULL
+    return $_input("")
+  end
+  return $_input($prompt)
+end
+
+func merge_dict(destination: dict, source: dict) -> dict
+  var merged: dict = $destination
+  for key in $source
+    $merged[$key] = $source[$key]
+  end
+  return $merged
+end

@@ -1,0 +1,63 @@
+-- Time library for GBN
+
+@from .sys.py @as _sys
+
+func _format_time(__format: str) -> str
+    return $_sys.format_time(__format)
+end
+
+func _time_now() -> float
+  return $_sys.current_time()
+end
+
+func _timestamp() -> int
+  return $_sys.current_timestamp()
+end
+
+func _milliseconds() -> int
+  return $_sys.current_milliseconds()
+end
+
+func _hours() -> int
+  return $_sys.hours()
+end
+
+func _minutes() -> int
+  return $_sys.minutes()
+end
+
+func _seconds() -> int
+  return $_sys.seconds()
+end
+
+func _sleep(__seconds: float) -> bool
+  $_sys.sleep(__seconds)
+
+  return true
+end
+
+func _date() -> str
+    return $_sys.date()
+end
+
+func _year() -> int
+    return $_sys.year()
+end
+
+func _month() -> int
+    return $_sys.month()
+end
+
+func _day() -> int
+    return $_sys.day()
+end
+
+var _last_time: float = $_time_now()
+
+func _delta() -> float
+  var _current_time: float = $_time_now()
+  var _delta: float = $_current_time - $_last_time
+  $_last_time = $_current_time
+
+  return $_delta
+end

@@ -1,0 +1,285 @@
+-- Random number generator library for GBN
+
+@use math.gbn
+@use time.gbn
+
+-- Global seed for pseudo-random number generation
+#onready var _random_seed: float = 12345.0
+
+-- Set the seed for reproducible random numbers
+func _seed(_new_seed: float) -> void
+	$_random_seed = $_new_seed
+end
+
+-- Internal Linear Congruential Generator
+func __lcg() -> float
+	-- Using LCG formula: X(n+1) = (a * X(n) + c) mod m
+	$_seed($_milliseconds())
+	$_random_seed = $_mod(1103515245.0 * $_random_seed + 12345.0, 2147483648.0)
+	return $_random_seed / 2147483648.0
+end
+
+-- Generate a random float between 0.0 and 1.0 (exclusive of 1.0)
+func _random() -> float
+	return $__lcg()
+end
+
+-- Generate a random integer between min and max (inclusive)
+func _random_int(_min_val: float, _max_val: float) -> int
+	var _low: float = $_round($_min_val)
+	var _high: float = $_round($_max_val)
+	if $_low > $_high
+		var _temp: float = $_low
+		$_low = $_high
+		$_high = $_temp
+	end
+	var _range: float = $_high - $_low + 1
+	var _value: float = $_random() * $_range
+	return $_int($_low + $_floor($_value))
+end
+
+-- Generate a random float between min and max
+func _random_float(_min_val: float, _max_val: float) -> float
+	return $_min_val + $_random() * ($_max_val - $_min_val)
+end
+
+-- Generate a random integer between 0 and max (inclusive)
+func _random_int_max(_max_val: float) -> int
+	return $_random_int(0, $_round($_max_val))
+end
+
+-- Generate a random float between 0 and max
+func _random_float_max(_max_val: float) -> float
+	return $_random_float(0, $_max_val)
+end
+
+-- Generate a random integer between min and max (alternative name)
+func _randint(_min_val: float, _max_val: float) -> int
+	return $_random_int($_min_val, $_max_val)
+end
+
+-- Generate a random float between min and max (alternative name)
+func _randfloat(_min_val: float, _max_val: float) -> float
+	return $_random_float($_min_val, $_max_val)
+end
+
+-- Generate a random boolean
+func _random_bool() -> bool
+	return $_random() > 0.5
+end
+
+-- Pick a random element from an array
+func _random_choice(_arr: array) -> any
+	if $_arr.size() == 0
+		return NULL
+	end
+
+	var _index: int = int(_random_int(0, $_arr.size() - 1))
+	return $_arr[$_index]
+end
+
+-- Pick multiple random elements from an array without replacement
+func _random_sample(_arr: array, _count: float) -> array
+	var _count_int: int = $_round($_count)
+
+	if $_count_int > $_arr.size()
+		$_count_int = $_arr.size()
+	end
+
+	if $_count_int <= 0
+		return []
+	end
+
+	var _result: array = []
+	var _available: array = $_arr.duplicate()
+
+	for _i in range(0, _count_int)
+		var _idx: int = $_int(_random_int(0, _available.size() - 1))
+		$_result.push_back($_available[$_idx])
+		$_available.remove($_idx)
+	end
+
+	return $_result
+end
+
+-- Shuffle an array (Fisher-Yates algorithm)
+func _random_shuffle(_arr: array) -> array
+	var _result: array = $_arr.duplicate()
+
+	for _i in range(_result.size() - 1, 0, -1)
+		var _j: int = $_int(_random_int(0, $_i))
+		-- Swap
+		var _temp: var = $_result[$_i]
+		$_result[$_i] = $_result[$_j]
+		$_result[$_j] = $_temp
+	end
+
+	return $_result
+end
+
+-- Generate a random float with Gaussian distribution (Box-Muller transform)
+func _random_gaussian(_mean: float = 0, _std_dev: float = 1) -> float
+	var _u1: float = $_random()
+	var _u2: float = $_random()
+
+	-- Avoid log(0)
+	if $_u1 <= 0
+		$_u1 = 0.000001
+	end
+
+	var _z0: float = $_sqrt(-2 * $_log($_u1)) * $_cos(2 * _PI * $_u2)
+	return $_mean + $_std_dev * $_z0
+end
+
+-- Generate a random float with Gaussian distribution (simpler approximation)
+func _random_normal(_mean: float = 0, _std_dev: float = 1) -> float
+	-- Central Limit Theorem approximation using 12 uniform values
+	var _sum: float = 0
+
+	for _i in range(0, 12)
+		$_sum = $_sum + $_random()
+	end
+
+	return $_mean + ($_std_dev * ($_sum - 6))
+end
+
+-- Generate a random weight between 0 and 1 (alias for random)
+func _random_weight() -> float
+	return $_random()
+end
+
+-- Generate a random percentage (0-100)
+func _random_percent() -> float
+	return $_random() * 100
+end
+
+-- Generate a random float in exponential distribution
+func _random_exponential(_lambda: float = 1) -> float
+	return - $_log($_random()) / $_lambda
+end
+
+-- Generate a random float following a uniform distribution
+func _random_uniform(_a: float, _b: float) -> float
+	return $_random_float($_a, $_b)
+end
+
+-- Generate an array of random integers
+func _random_int_array(_count: float, _min_val: float, _max_val: float) -> array
+	var _count_int: int = $_round($_count)
+	var _result: array = []
+
+	for _i in range(0, _count_int)
+		$_result.push_back($_random_int($_min_val, $_max_val))
+	end
+
+	return $_result
+end
+
+-- Generate an array of random floats
+func _random_float_array(_count: float, _min_val: float, _max_val: float) -> array
+	var _count_int: int = $_round($_count)
+	var _result: array = []
+
+	for _i in range(0, _count_int)
+		$_result.push_back($_random_float($_min_val, $_max_val))
+	end
+
+	return $_result
+end
+
+-- Generate an array of random booleans
+func _random_bool_array(_count: float) -> array
+	var _count_int: int = $_round($_count)
+	var _result: array = []
+
+	for _i in range(0, _count_int)
+		$_result.push_back($_random_bool())
+	end
+
+	return $_result
+end
+
+-- Generate a random 2D vector
+func _random_vec2(_min_val: float = 0, _max_val: float = 1) -> array
+	return [$_random_float($_min_val, $_max_val), $_random_float($_min_val, $_max_val)]
+end
+
+-- Generate a random 3D vector
+func _random_vec3(_min_val: float = 0, _max_val: float = 1) -> array
+	return [$_random_float($_min_val, $_max_val), $_random_float($_min_val, $_max_val), $_random_float($_min_val, $_max_val)]
+end
+
+-- Generate a random normalized 2D vector (unit vector)
+func _random_direction_2d() -> array
+	var _angle: float = $_random_float(0, 2 * _PI)
+	return [$_cos($_angle), $_sin($_angle)]
+end
+
+-- Generate a random normalized 3D vector (unit vector)
+func _random_direction_3d() -> array
+	var _u: float = $_random_float(-1, 1)
+	var _theta: float = $_random_float(0, 2 * _PI)
+	var _r: float = $_sqrt(1 - $_u * $_u)
+
+	return [$_r * $_cos($_theta), $_r * $_sin($_theta), $_u]
+end
+
+-- Generate a random vector within a sphere (3D)
+func _random_in_sphere(_radius: float = 1) -> array
+	var _direction: array = $_random_direction_3d()
+	var _magnitude: float = $_pow($_random(), 1.0 / 3.0) * $_radius
+	return [$_direction[0] * $_magnitude, $_direction[1] * $_magnitude, $_direction[2] * $_magnitude]
+end
+
+-- Generate a random vector within a circle (2D)
+func _random_in_circle(_radius: float = 1) -> array
+	var _direction: array = _random_direction_2d()
+	var _magnitude: float = $_sqrt($_random()) * $_radius
+	return [$_direction[0] * $_magnitude, $_direction[1] * $_magnitude]
+end
+
+-- Check if a random event occurs with given probability (0-1)
+func _random_chance(_probability: float) -> bool
+	return $_random() < $_probability
+end
+
+-- Get a weighted random choice from an array of [value, weight] pairs
+func _random_weighted_choice(_weighted_array: array) -> any
+	var _total_weight: float = 0
+
+	for _i in range(0, _weighted_array.size())
+		$_total_weight = $_total_weight + $_weighted_array[$_i][1]
+	end
+
+	var _random_val: float = _random_float(0, $_total_weight)
+	var _current: float = 0
+
+	for _i in range(0, _weighted_array.size())
+		$_current = $_current + $_weighted_array[$_i][1]
+		if $_random_val <= $_current
+			return $_weighted_array[$_i][0]
+		end
+	end
+
+	return $_weighted_array[_weighted_array.size() - 1][0]
+end
+
+-- Generate a random color as RGB array [r, g, b] with values 0-1
+func _random_color() -> array
+	return [$_random(), $_random(), $_random()]
+end
+
+-- Generate a random color as RGB array with integer values 0-255
+func _random_color_int() -> array
+	return [$_random_int(0, 255), $_random_int(0, 255), _random_int(0, 255)]
+end
+
+-- Generate a random float clamped to a range
+func _random_clamped(_min_val: float, _max_val: float) -> float
+	return $_clamp($_random_normal() * ($_max_val - $_min_val) / 4 + ($_max_val + $_min_val) / 2, $_min_val, $_max_val)
+end
+
+-- Perturb a value by a random amount
+func _random_perturb(_value: float, _amount: float) -> float
+	return $_value + $_random_float(-$_amount, $_amount)
+end

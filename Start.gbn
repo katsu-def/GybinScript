@@ -1,0 +1,7 @@
+#!/home/katsu/Proyectos/GybinScript/Core/Gybin.py
+
+func init() -> void
+    $print("GBN version " + $GBN.VERSION + "\nBy " + $GBN.AUTHOR + " available now!")
+end
+
+run

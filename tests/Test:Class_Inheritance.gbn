@@ -1,0 +1,35 @@
+-- Prueba de comportamiento de clases con herencias.
+
+class Entity
+    var hp: int = NULL
+
+    func init(self) -> NULL
+        $self.hp = 100
+    end
+
+end
+
+class Enemy extends Entity -- Hereda los atributos de la clase base "Entity".
+    var damage: int = NULL
+
+    !* NOTA IMPORTANTE: Por ciertos problemas no puedes usar init()
+    en una clase que hereda otra ya inicializada
+    con la misma función. Puedes usar __init__() en este caso. !*
+    func __init__(self) -> NULL
+        $self.hp = 50
+        $self.damage = 10
+    end
+
+end
+
+var e: any = $Enemy()
+
+!* La función init() fuera de una clase, se usa como función principal, y no choca
+con la función inicializadora de una clase, pues se usan en diferentes contextos. !*
+func init() -> NULL
+    $print($e.hp)
+    $print($e.damage)
+
+end
+
+run

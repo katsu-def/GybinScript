@@ -1,0 +1,18 @@
+-- Prueba de comportamiento de caché.
+
+var i: int = 0
+
+!* Este bucle tendrá siempre el mismo espacio en memoria, en lugar de reasignar uno nuevo en cada ciclo;
+se libera cuando el bucle termina. !*
+
+func init() -> NULL
+    while $i < 10000 --El bucle se ejecuta siempre que su condición se cumpla.
+        var x = ($i * 5) + (20 / 2)
+        $i += 1
+
+        $print($i)
+    end
+
+end
+
+run

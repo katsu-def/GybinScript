@@ -1,0 +1,24 @@
+-- System library for GBN
+
+@from .sys.py @as _sys
+
+func _sys_platform() -> any
+  return $_sys.platform_name()
+end
+
+func _sys_os_name() -> str
+  return $_sys.os_name()
+end
+
+func _sys_cpu_count() -> int
+  return $_sys.cpu_count()
+end
+
+-- Environ variable
+func _sys_env(_name: str, _default: str) -> str
+  return $_sys.env(_name, _default)
+end
+
+func _sys_exit() -> NULL
+  $_sys._exit()
+end

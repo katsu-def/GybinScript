@@ -1,0 +1,24 @@
+-- Prueba de comportamiento de clases con métodos.
+
+class Player
+    var hp: int = NULL
+
+    func init(self) -> NULL
+        $self.hp = 100
+    end
+
+    func damage(self, amount: int) -> NULL
+        $self.hp -= $amount
+    end
+
+end
+
+var p: any = $Player()
+
+func init() -> NULL
+    $print($p.hp)
+    $p.damage(30)
+    $print($p.hp)
+end
+
+run

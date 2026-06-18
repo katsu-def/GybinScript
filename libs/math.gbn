@@ -1,0 +1,724 @@
+-- Math library for GBN
+
+-- Mathematical Constants
+#onready const _PI: float = 3.141592653589793
+#onready const _E: float = 2.718281828459045
+#onready const _PHI: float = 1.618033988749895
+#onready const _SQRT2: float = 1.414213562373095
+#onready const _SQRT3: float = 1.732050807568877
+#onready const _LN2: float = 0.693147180559945
+#onready const _LN10: float = 2.302585092994046
+#onready const _DEG_TO_RAD: float = 0.017453292519943
+#onready const _RAD_TO_DEG: float = 57.29577951308232
+
+-- Basic Functions
+func _sqrt(_number: float) -> float
+	return $_number ** 0.5
+end
+
+func _pow(_base: float, _exponent: float) -> float
+	return $_base ** $_exponent
+end
+
+func _abs(_value: float) -> float
+	if $_value < 0
+		return -$_value
+	else
+		return $_value
+	end
+end
+
+func _max(_a: float, _b: float) -> float
+	if $_a > $_b
+		return $_a
+	else
+		return $_b
+	end
+end
+
+func _min(_a: float, _b: float) -> float
+	if $_a < $_b
+		return $_a
+	else
+		return $_b
+	end
+end
+
+-- Rounding Functions
+func _floor(_value: float) -> int
+	-- Floor using modulo arithmetic: works for positive and negative values
+	return int($_value - ($_value % 1))
+end
+
+func _ceil(_value: float) -> int
+	-- Ceil can be defined via floor of the negated value
+	return -_floor(-$_value)
+end
+
+func _round(_value: float) -> int
+	if $_value >= 0.0
+		return int(_floor($_value + 0.5))
+	else
+		return int(_ceil($_value - 0.5))
+	end
+end
+
+-- Sign Function
+func _sign(_value: float) -> float
+	if $_value > 0
+		return 1
+	elif $_value < 0
+		return -1
+	else
+		return 0
+	end
+end
+
+-- Clamp Function: Restricts value between min and max
+func _clamp(_value: float, _min_val: float, _max_val: float) -> float
+	if $_value < $_min_val
+		return $_min_val
+	elif $_value > $_max_val
+		return $_max_val
+	else
+		return $_value
+	end
+end
+
+-- Logarithmic Functions
+func _log(_value: float) -> float
+	-- Natural logarithm approximation using exponential reduction and series expansion
+	if $_value <= 0
+		return 0
+	end
+
+	var _n: float = 0
+	var _x: float = $_value
+
+	while $_x > 2
+		$_x = $_x / _E
+		$_n = $_n + 1
+	end
+
+	while $_x < 0.5
+		$_x = $_x * _E
+		$_n = $_n - 1
+	end
+
+	var _y: float = ($_x - 1) / ($_x + 1)
+	var _y2: float = $_y * $_y
+	var _result: float = 0
+	var _term: float = $_y
+	var _i: float = 1
+
+	while _abs($_term) > 0.0000001 and $_i < 100
+		$_result = $_result + $_term / $_i
+		$_term = $_term * $_y2
+		$_i = $_i + 2
+	end
+
+	return 2 * $_result + $_n
+end
+
+func _log10(_value: float) -> float
+	-- Base 10 logarithm
+	return _log($_value) / _LN10
+end
+
+func _log2(_value: float) -> float
+	-- Base 2 logarithm
+	return _log($_value) / _LN2
+end
+
+-- Exponential Function
+func _exp(_value: float) -> float
+	-- e^x approximation using Taylor series
+	return _E ** $_value
+end
+
+-- Integer Functions
+func _gcd(_a: float, _b: float) -> float
+	-- Greatest Common Divisor
+	var _a_val: float = _abs($_a)
+	var _b_val: float = _abs($_b)
+
+	while $_b_val != 0
+		var _temp: float = $_b_val
+		$_b_val = $_a_val % $_b_val
+		$_a_val = $_temp
+	end
+
+	return $_a_val
+end
+
+func _lcm(_a: float, _b: float) -> float
+	-- Least Common Multiple
+	return _abs($_a * $_b) / _gcd($_a, $_b)
+end
+
+-- Hyperbolic Functions
+func _sinh(_value: float) -> float
+	return (_exp($_value) - _exp(-$_value)) / 2
+end
+
+func _cosh(_value: float) -> float
+	return (_exp($_value) + _exp(-$_value)) / 2
+end
+
+func _tanh(_value: float) -> float
+	return _sinh($_value) / _cosh($_value)
+end
+
+-- Angle Conversion Functions
+func _degrees(_radians: float) -> float
+	return $_radians * _RAD_TO_DEG
+end
+
+func _radians(_degrees: float) -> float
+	return $_degrees * _DEG_TO_RAD
+end
+
+-- Trigonometric Functions
+func _sin(_angle: float) -> float
+	-- Sin approximation using Taylor series
+	var _x: float = $_angle % (2 * _PI)
+	var _result: float = 0
+	var _term: float = $_x
+	var _i: float = 1
+
+	while _abs($_term) > 0.0000001 and $_i < 20
+		$_result = $_result + $_term
+		$_term = $_term * (-$_x * $_x) / (2 * $_i * (2 * $_i + 1))
+		$_i = $_i + 1
+	end
+
+	return $_result
+end
+
+func _cos(_angle: float) -> float
+	-- Cos approximation using Taylor series
+	-- cos(x) = 1 - x²/2! + x⁴/4! - ...
+	-- term(n+1) = term(n) * (-x²) / ((2n)(2n-1))
+	var _x: float = $_angle % (2 * _PI)
+	var _result: float = 0
+	var _term: float = 1
+	var _i: float = 1
+
+	while _abs($_term) > 0.0000001 and $_i < 20
+		$_result = $_result + $_term
+		$_term = $_term * (-$_x * $_x) / ((2 * $_i) * (2 * $_i - 1))
+		$_i = $_i + 1
+	end
+
+	return $_result
+end
+
+func _tan(_angle: float) -> float
+	return _sin($_angle) / _cos($_angle)
+end
+
+func _asin(_value: float) -> float
+	-- Arc sine
+	if _abs($_value) > 1
+		return 0
+	end
+
+	var _x: float = $_value
+	var _result: float = $_x
+	var _i: float = 1
+
+	while $_i < 10
+		$_result = $_result + (_factorial(2 * $_i - 1) / (_pow(2, 2 * $_i) * _pow(_factorial($_i), 2) * (2 * $_i + 1))) * _pow($_x, 2 * $_i + 1)
+		$_i = $_i + 1
+	end
+
+	return $_result
+end
+
+func _acos(_value: float) -> float
+	-- Arc cosine
+	return (_PI / 2) - _asin($_value)
+end
+
+func _atan(_value: float) -> float
+	-- Arc tangent
+	var _x: float = $_value
+	var _result: float = 0
+
+	if _abs($_x) <= 1
+		var _x_squared: float = $_x * $_x
+		var _numerator: float = $_x
+		var _denominator: float = 1
+
+		for _i in range(0, 20)
+			$_result = $_result + $_numerator / $_denominator
+			$_numerator = $_numerator * (-$_x_squared)
+			$_denominator = $_denominator + 2
+		end
+	else
+		var _inv_x: float = 1 / $_x
+		$_result = _sign($_x) * (_PI / 2) - _atan($_inv_x)
+	end
+
+	return $_result
+end
+
+func _atan2(_y: float, _x: float) -> float
+	-- Arc tangent of y/x, handling all quadrants
+	if $_x > 0
+		return _atan($_y / $_x)
+	elif $_x < 0 and $_y >= 0
+		return _atan($_y / $_x) + _PI
+	elif $_x < 0 and $_y < 0
+		return _atan($_y / $_x) - _PI
+	elif $_x == 0 and $_y > 0
+		return _PI / 2
+	elif $_x == 0 and $_y < 0
+		return -_PI / 2
+	else
+		return 0
+	end
+end
+
+-- Factorial Function
+func _factorial(_n: float) -> float
+	var _n_int: float = _round($_n)
+
+	if $_n_int < 0
+		return 0
+	elif $_n_int == 0 or $_n_int == 1
+		return 1
+	else
+		var _result: float = 1
+		var _i: float = 2
+
+		while $_i <= $_n_int
+			$_result = $_result * $_i
+			$_i = $_i + 1
+		end
+
+		return $_result
+	end
+end
+
+-- Fibonacci Function
+func _fibonacci(_n: float) -> float
+	var _n_int: float = _round($_n)
+
+	if $_n_int <= 0
+		return 0
+	elif $_n_int == 1
+		return 1
+	else
+		var _a: float = 0
+		var _b: float = 1
+		var _i: float = 2
+
+		while $_i <= $_n_int
+			var _temp: float = $_a + $_b
+			$_a = $_b
+			$_b = $_temp
+			$_i = $_i + 1
+		end
+
+		return $_b
+	end
+end
+
+-- Modulo with proper handling of negative numbers
+func _mod(_a: float, _b: float) -> float
+	var _result: float = $_a % $_b
+
+	if ($_result < 0 and $_b > 0) or ($_result > 0 and $_b < 0)
+		$_result = $_result + $_b
+	end
+
+	return $_result
+end
+
+-- Linear Interpolation
+func _lerp(_a: float, _b: float, _t: float) -> float
+	return $_a + ($_b - $_a) * $_t
+end
+
+-- Smoothstep Function (cubic Hermite interpolation)
+func _smoothstep(_edge0: float, _edge1: float, _x: float) -> float
+	var _t: float = _clamp(($_x - $_edge0) / ($_edge1 - $_edge0), 0, 1)
+	return $_t * $_t * (3 - 2 * $_t)
+end
+
+-- ============================================
+-- COMPLEX NUMBERS (represented as [real, imag])
+-- ============================================
+
+-- Create a complex number [real, imaginary]
+func _complex(_real: float, _imag: float) -> array
+	return [$_real, $_imag]
+end
+
+-- Get real part of complex number
+func _complex_real(_c: array) -> float
+	return $_c[0]
+end
+
+-- Get imaginary part of complex number
+func _complex_imag(_c: array) -> float
+	return $_c[1]
+end
+
+-- Complex addition: (a + bi) + (c + di)
+func _complex_add(_c1: array, _c2: array) -> array
+	return [$_c1[0] + $_c2[0], $_c1[1] + $_c2[1]]
+end
+
+-- Complex subtraction: (a + bi) - (c + di)
+func _complex_sub(_c1: array, _c2: array) -> array
+	return [$_c1[0] - $_c2[0], $_c1[1] - $_c2[1]]
+end
+
+-- Complex multiplication: (a + bi) * (c + di)
+func _complex_mul(_c1: array, _c2: array) -> array
+	var _real: float = $_c1[0] * $_c2[0] - $_c1[1] * $_c2[1]
+	var _imag: float = $_c1[0] * $_c2[1] + $_c1[1] * $_c2[0]
+	return [$_real, $_imag]
+end
+
+-- Complex division: (a + bi) / (c + di)
+func _complex_div(_c1: array, _c2: array) -> array
+	var _denominator: float = $_c2[0] * $_c2[0] + $_c2[1] * $_c2[1]
+	var _real: float = ($_c1[0] * $_c2[0] + $_c1[1] * $_c2[1]) / $_denominator
+	var _imag: float = ($_c1[1] * $_c2[0] - $_c1[0] * $_c2[1]) / $_denominator
+	return [$_real, $_imag]
+end
+
+-- Complex conjugate: conj(a + bi) = a - bi
+func _complex_conj(_c: array) -> array
+	return [$_c[0], -$_c[1]]
+end
+
+-- Complex magnitude: |a + bi| = sqrt(a^2 + b^2)
+func _complex_magnitude(_c: array) -> float
+	return _sqrt($_c[0] * $_c[0] + $_c[1] * $_c[1])
+end
+
+-- Complex argument (phase angle): arg(a + bi)
+func _complex_arg(_c: array) -> float
+	return _atan2($_c[1], $_c[0])
+end
+
+-- Complex exponent: e^(a + bi)
+func _complex_exp(_c: array) -> array
+	var _exp_real: float = _exp($_c[0])
+	return [$_exp_real * _cos($_c[1]), $_exp_real * _sin($_c[1])]
+end
+
+-- Complex power: (a + bi)^n
+func _complex_pow(_c: array, _n: float) -> array
+	var _magnitude: float = _complex_magnitude($_c)
+	var _angle: float = _complex_arg($_c)
+
+	var _new_magnitude: float = _pow($_magnitude, $_n)
+	var _new_angle: float = $_angle * $_n
+
+	return [$_new_magnitude * _cos($_new_angle), $_new_magnitude * _sin($_new_angle)]
+end
+
+-- Complex logarithm: ln(a + bi)
+func _complex_log(_c: array) -> array
+	var _magnitude: float = _complex_magnitude($_c)
+	var _angle: float = _complex_arg($_c)
+	return [_log($_magnitude), $_angle]
+end
+
+-- Complex square root
+func _complex_sqrt(_c: array) -> array
+	return _complex_pow($_c, 0.5)
+end
+
+-- Format complex number as string
+func _complex_str(_c: array) -> string
+	var _real_str: string = str($_c[0])
+	var _imag_str: string = str(_abs($_c[1]))
+	var _sign: string = "+" if $_c[1] >= 0 else "-"
+	return $_real_str + $_sign + $_imag_str + "i"
+end
+
+-- ============================================
+-- VECTORS (represented as arrays)
+-- ============================================
+
+-- Create a 2D vector
+func _vec2(_x: float, _y: float) -> array
+	return [$_x, $_y]
+end
+
+-- Create a 3D vector
+func _vec3(_x: float, _y: float, _z: float) -> array
+	return [$_x, $_y, $_z]
+end
+
+-- Create an n-dimensional vector
+func _vector(_components: array) -> array
+	return $_components
+end
+
+-- Get vector component by index
+func _vec_get(_v: array, _index: float) -> float
+	return $_v[_round($_index)]
+end
+
+-- Set vector component by index
+func _vec_set(_v: array, _index: float, _value: float) -> array
+	var _result: array = []
+	for _i in range(0, _v.size())
+		if $_i == _round($_index)
+			$_result.push_back($_value)
+		else
+			$_result.push_back($_v[$_i])
+		end
+	end
+	return $_result
+end
+
+-- Vector addition: u + v
+func _vec_add(_u: array, _v: array) -> array
+	var _result: array = []
+	var _size: float = _min(_u.size(), _v.size())
+
+	for _i in range(0, _size)
+		$_result.push_back($_u[$_i] + $_v[$_i])
+	end
+
+	return $_result
+end
+
+-- Vector subtraction: u - v
+func _vec_sub(_u: array, _v: array) -> array
+	var _result: array = []
+	var _size: float = _min(_u.size(), _v.size())
+
+	for _i in range(0, _size)
+		$_result.push_back($_u[$_i] - $_v[$_i])
+	end
+
+	return $_result
+end
+
+-- Scalar multiplication: v * scalar
+func _vec_scale(_v: array, _scalar: float) -> array
+	var _result: array = []
+
+	for _i in range(0, _v.size())
+		$_result.push_back($_v[$_i] * $_scalar)
+	end
+
+	return $_result
+end
+
+-- Dot product: u · v
+func _vec_dot(_u: array, _v: array) -> float
+	var _result: float = 0
+	var _size: float = _min(_u.size(), _v.size())
+
+	for _i in range(0, _size)
+		$_result = $_result + $_u[$_i] * $_v[$_i]
+	end
+
+	return $_result
+end
+
+-- Vector magnitude/length: |v|
+func _vec_magnitude(_v: array) -> float
+	return _sqrt(_vec_dot($_v, $_v))
+end
+
+-- Vector length (alias for magnitude)
+func _vec_length(_v: array) -> float
+	return _vec_magnitude($_v)
+end
+
+-- Normalize vector: v / |v|
+func _vec_normalize(_v: array) -> array
+	var _magnitude: float = _vec_magnitude($_v)
+
+	if $_magnitude == 0
+		return $_v
+	else
+		return _vec_scale($_v, 1 / $_magnitude)
+	end
+end
+
+-- Distance between two vectors
+func _vec_distance(_u: array, _v: array) -> float
+	return _vec_magnitude(_vec_sub($_u, $_v))
+end
+
+-- Squared distance (more efficient, no sqrt)
+func _vec_distance_squared(_u: array, _v: array) -> float
+	var _diff: array = _vec_sub($_u, $_v)
+	return _vec_dot($_diff, $_diff)
+end
+
+-- Cross product (for 3D vectors): u × v
+func _vec_cross(_u: array, _v: array) -> array
+	if _u.size() == 3 and _v.size() == 3
+		var _x: float = $_u[1] * $_v[2] - $_u[2] * $_v[1]
+		var _y: float = $_u[2] * $_v[0] - $_u[0] * $_v[2]
+		var _z: float = $_u[0] * $_v[1] - $_u[1] * $_v[0]
+		return [$_x, $_y, $_z]
+	else
+		return []
+	end
+end
+
+-- Angle between two vectors (in radians)
+func _vec_angle(_u: array, _v: array) -> float
+	var _dot: float = _vec_dot($_u, $_v)
+	var _mag_u: float = _vec_magnitude($_u)
+	var _mag_v: float = _vec_magnitude($_v)
+
+	if $_mag_u == 0 or $_mag_v == 0
+		return 0
+	end
+
+	var _cos_angle: float = $_dot / ($_mag_u * $_mag_v)
+	-- Clamp to [-1, 1] to avoid rounding errors in acos
+	$_cos_angle = _clamp($_cos_angle, -1, 1)
+
+	return _acos($_cos_angle)
+end
+
+-- Projection of u onto v: proj_v(u) = (u·v / v·v) * v
+func _vec_project(_u: array, _v: array) -> array
+	var _dot: float = _vec_dot($_u, $_v)
+	var _v_squared: float = _vec_dot($_v, $_v)
+
+	if $_v_squared == 0
+		return []
+	end
+
+	return _vec_scale($_v, $_dot / $_v_squared)
+end
+
+-- Rejection of u from v: u - proj_v(u)
+func _vec_reject(_u: array, _v: array) -> array
+	return _vec_sub($_u, _vec_project($_u, $_v))
+end
+
+-- Linear interpolation between vectors: lerp(u, v, t)
+func _vec_lerp(_u: array, _v: array, _t: float) -> array
+	return _vec_add(_vec_scale($_u, 1 - $_t), _vec_scale($_v, $_t))
+end
+
+-- Reflect vector v around normal n: v - 2(v·n)n
+func _vec_reflect(_v: array, _n: array) -> array
+	var _dot: float = _vec_dot($_v, $_n)
+	return _vec_sub($_v, _vec_scale($_n, 2 * $_dot))
+end
+
+-- All components of vector
+func _vec_components(_v: array) -> array
+	return $_v
+end
+
+-- Sum of all components
+func _vec_sum(_v: array) -> float
+	var _result: float = 0
+
+	for _i in range(0, _v.size())
+		$_result = $_result + $_v[$_i]
+	end
+
+	return $_result
+end
+
+-- Average of all components
+func _vec_average(_v: array) -> float
+	if _v.size() == 0
+		return 0
+	end
+
+	return _vec_sum($_v) / _v.size()
+end
+
+-- Element-wise multiplication: u * v
+func _vec_multiply(_u: array, _v: array) -> array
+	var _result: array = []
+	var _size: float = _min(_u.size(), _v.size())
+
+	for _i in range(0, _size)
+		$_result.push_back($_u[$_i] * $_v[$_i])
+	end
+
+	return $_result
+end
+
+-- Element-wise division: u / v
+func _vec_divide(_u: array, _v: array) -> array
+	var _result: array = []
+	var _size: float = _min(_u.size(), _v.size())
+
+	for _i in range(0, _size)
+		if $_v[$_i] != 0
+			$_result.push_back($_u[$_i] / $_v[$_i])
+		else
+			$_result.push_back(0)
+		end
+	end
+
+	return $_result
+end
+
+-- Maximum component value
+func _vec_max(_v: array) -> float
+	if _v.size() == 0
+		return 0
+	end
+
+	var _max_val: float = $_v[0]
+
+	for _i in range(1, _v.size())
+		if $_v[$_i] > $_max_val
+			$_max_val = $_v[$_i]
+		end
+	end
+
+	return $_max_val
+end
+
+-- Minimum component value
+func _vec_min(_v: array) -> float
+	if _v.size() == 0
+		return 0
+	end
+
+	var _min_val: float = $_v[0]
+
+	for _i in range(1, _v.size())
+		if $_v[$_i] < $_min_val
+			$_min_val = $_v[$_i]
+		end
+	end
+
+	return $_min_val
+end
+
+-- Format vector as string
+func _vec_str(_v: array) -> string
+	var _result: string = "("
+
+	for _i in range(0, _v.size())
+		$_result = $_result + str($_v[$_i])
+		if $_i < _v.size() - 1
+			$_result = $_result + ", "
+		end
+	end
+
+	$_result = $_result + ")"
+	return $_result
+end
+
+-- Convert vector to unit vector (normalized)
+func _vec_unit(_v: array) -> array
+	return _vec_normalize($_v)
+end

@@ -1,0 +1,26 @@
+-- Prueba de comportamiento de objetos dentro de diccionarios.
+
+class Item
+    var name: str[32] = NULL
+
+    func init(self, name: str[32]) -> NULL
+        $self.name = $name
+    end
+end
+
+!* NOTA IMPORTANTE: El interprete ignora objetos con "NULL" hasta que cambias su valor, en una variable
+tipo dict es mejor iniciarla con {} si aún no tiene nada para el momento de declararla, o dará error
+de no declaración si intentas añadir un objeto. !*
+
+-- Se recomienda usar "any" solo en momentos muy específicos, como variables que contienen clases enteras.
+
+var inventory: dict[any] = {}
+
+func init() -> NULL
+    $inventory["weapon"] = Item("Sword")
+    $inventory["shield"] = Item("Wood Shield")
+
+    $print($inventory["weapon"].name)
+end
+
+run

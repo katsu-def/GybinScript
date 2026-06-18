@@ -1,0 +1,7 @@
+var inventory: dict[int] = {}
+
+$inventory["Potion"] = 5
+$inventory["Sword"] = 1
+$inventory["Gold"] = 12
+
+$print($inventory)

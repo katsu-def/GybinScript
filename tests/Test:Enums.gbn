@@ -1,0 +1,7 @@
+-- Prueba de comportamiento de enums
+
+enum Direction = {UP, DOWN, LEFT, RIGHT} -- Guarda los posibles estados de "Direction".
+
+var dir: int = Direction.UP -- Guarda un estado específico de "Direction".
+
+$print($dir)
