@@ -2,8 +2,8 @@
 
 > **Version:** 1.4.0
 > **File Extension:** `.gbn`
-> **Interpreter:** `Core/Gybin`
-> **Execution:** `python3 (Interpreter dir: Core/Gybin) (File dir: My_script.gbn)`
+> **Interpreter:** `Core/Gybin` \ `/usr/bin/Gybin`
+> **Execution:** `Gybin (File dir: My_script.gbn)`
 
 > ! You can also declare the interpreter on the first line of your code and run it like any other program. (Linux only) Example:
 
@@ -58,7 +58,7 @@ GybinScript is a statically typed interpreted scripting language with controlled
 ## 2. Console Execution
 
 ```bash
-python3 Core/Gybin.py my_script.gbn [options]
+Gybin my_script.gbn [options]
 ```
 
 ### Available Options
@@ -77,7 +77,7 @@ python3 Core/Gybin.py my_script.gbn [options]
 ### Example
 
 ```bash
-python3 Core/Gybin.py game.gbn --sm --w --t
+Gybin game.gbn --sm --w --t
 ```
 
 ---
@@ -750,14 +750,14 @@ var name: str[64] = $input("What is your name? ")
 With the `--c` flag, the interpreter attempts to generate a standalone executable using PyInstaller:
 
 ```bash
-python3 Core/Gybin.py my_script.gbn --c
+Gybin my_script.gbn --c
 ```
 
 If PyInstaller is not available, a Bash wrapper is generated that invokes the interpreter directly:
 
 ```bash
 #!/usr/bin/env bash
-exec python3 "Core/Gybin.py" "my_script.gbn" "$@"
+Gybin "my_script.gbn" "$@"
 ```
 
 With `--fc`, compilation is forced even if the script contains execution errors.

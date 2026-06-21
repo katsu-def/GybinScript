@@ -2,8 +2,8 @@
 
 > **Versión:** 1.4.0  
 > **Extensión de archivos:** `.gbn`  
-> **Intérprete:** `Core/Gybin`
-> **Ejecución:** `python3 (Dirección de interprete: Core/Gybin) (Dirección de archivo: Mi_script.gbn)`
+> **Intérprete:** `Core/Gybin` \ `/usr/bin/Gybin`
+> **Ejecución:** `Gybin (Dirección de archivo: Mi_script.gbn)`
 
 > ! Tambien puedes declarar el interprete en la primera linea de tu código y ejecutarlo como cualquier programa. (Solo en linux) Ej: 
 
@@ -58,7 +58,7 @@ GybinScript es un lenguaje de scripting de tipado estático e interpretado, con 
 ## 2. Ejecución desde consola
 
 ```bash
-python3 Core/Gybin.py mi_script.gbn [opciones]
+Gybin mi_script.gbn [opciones]
 ```
 
 ### Opciones disponibles
@@ -77,7 +77,7 @@ python3 Core/Gybin.py mi_script.gbn [opciones]
 ### Ejemplo
 
 ```bash
-python3 Core/Gybin.py juego.gbn --sm --w --t
+Gybin juego.gbn --sm --w --t
 ```
 
 ---
@@ -755,14 +755,14 @@ var nombre: str[64] = $input("¿Cómo te llamas? ")
 Con la flag `--c`, el intérprete intenta generar un ejecutable standalone usando PyInstaller:
 
 ```bash
-python3 Core/Gybin.py mi_script.gbn --c
+Gybin mi_script.gbn --c
 ```
 
 Si PyInstaller no está disponible, se genera un wrapper bash que invoca el intérprete directamente:
 
 ```bash
 #!/usr/bin/env bash
-exec python3 "Core/Gybin.py" "mi_script.gbn" "$@"
+exec Gybin "mi_script.gbn" "$@"
 ```
 
 Con `--fc`, la compilación se fuerza incluso si el script tiene errores de ejecución.
