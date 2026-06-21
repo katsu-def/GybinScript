@@ -29,15 +29,15 @@ def current_milliseconds() -> int:
 
 
 def hours() -> int:
-    return time.localtime().tm_hour
+    return int(time.localtime().tm_hour)
 
 
 def minutes() -> int:
-    return time.localtime().tm_min
+    return int(time.localtime().tm_min)
 
 
 def seconds() -> int:
-    return time.localtime().tm_sec
+    return int(time.localtime().tm_sec)
 
 
 def milliseconds() -> int:

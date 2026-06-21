@@ -1,14 +1,14 @@
 # GybinScript — Manual de Uso
 
-> **Versión:** 1.3.0  
+> **Versión:** 1.4.0  
 > **Extensión de archivos:** `.gbn`  
-> **Intérprete:** `Core/Gybin.py`
-> **Ejecución:** `python3 (Dirección de interprete: Core/Gybin.py) (Dirección de archivo: Mi_script.gbn)`
+> **Intérprete:** `Core/Gybin`
+> **Ejecución:** `python3 (Dirección de interprete: Core/Gybin) (Dirección de archivo: Mi_script.gbn)`
 
 > ! Tambien puedes declarar el interprete en la primera linea de tu código y ejecutarlo como cualquier programa. (Solo en linux) Ej: 
 
 ```gbn
-#!/home/(user)/GybinScript/Core/Gybin.py -- Dirección del parser
+#!/usr/bin/Gybin -- Dirección del parser
 
 $print("Hola!") 
 ```
@@ -17,6 +17,8 @@ $print("Hola!")
 chmod +x Mi_script.gbn
 ./Mi_script.gbn
 ```
+
+> Ejecute setup-linux para configurar el lanzador de Gybin en '/usr/bin'
 
 ---
 
@@ -588,7 +590,7 @@ El operador `$$` crea un puntero a una variable existente. Al leer el puntero, s
 
 ```gbn
 var hp: int = 100
-var ref = $$hp
+var ref: any = $$hp
 
 $print($ref)  -- Muestra el valor de hp a través del puntero
 ```
@@ -677,7 +679,7 @@ end
 
 ### Garbage collector post-ejecución
 
-Al terminar la ejecución, el motor libera automáticamente símbolos globales que fueron definidos pero nunca leídos (funciones, clases, namespaces importados). Las variables planas globales no se tocan; es responsabilidad del programador liberarlas con `free` si es necesario.
+Al terminar la ejecución, el motor libera automáticamente símbolos globales que fueron definidos pero nunca leídos (variables globales, funciones, clases, namespaces importados). También puede usarse `$free($var)` si es necesario.
 
 ### `--sm` — resumen de memoria
 
@@ -826,7 +828,7 @@ Se recomienda usar nombres distintos para variables locales que coexisten con va
 
 ### Uso de `any`
 
-`any` desactiva la verificación de tipo. Se recomienda usarlo únicamente cuando sea estrictamente necesario, como en variables que almacenan instancias de clase o valores de tipo desconocido en tiempo de declaración.
+`any` desactiva la verificación de tipo. Se recomienda usarlo únicamente cuando sea estrictamente necesario, como en variables que almacenan valores de tipo desconocido en tiempo de declaración.
 
 ### Inicialización de colecciones
 

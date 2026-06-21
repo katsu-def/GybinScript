@@ -1,7 +1,6 @@
 -- Punteros, no terminado.
 
 var hp: int = 100
-var ref = $$hp
-
+var ref: any = $$hp
 
 $print($ref)

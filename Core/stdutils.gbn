@@ -1,7 +1,7 @@
 -- Standar library
 
 class Engine
-  const VERSION: str[8] = "1.3.0a"
+  const VERSION: str[8] = "1.4.0"
   const AUTHOR: str[10] = "Katsu Dev"
 end
 
@@ -80,3 +80,8 @@ func merge_dict(destination: dict, source: dict) -> dict
   end
   return $merged
 end
+
+func pause() -> NULL
+  $input("pause> ")
+end
+

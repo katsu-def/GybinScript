@@ -44,20 +44,29 @@ func _year() -> int
     return $_sys.year()
 end
 
-func _month() -> int
+func _month() -> any
     return $_sys.month()
 end
 
-func _day() -> int
+func _day() -> any
     return $_sys.day()
 end
 
-var _last_time: float = $_time_now()
+var _last_time: float = $float($_seconds())
 
 func _delta() -> float
-  var _current_time: float = $_time_now()
-  var _delta: float = $_current_time - $_last_time
+  var _current_time: float = $float($_seconds())
+  var _del: float = ($_current_time - $_last_time) / 1000.0
   $_last_time = $_current_time
 
-  return $_delta
+  return $_del
+end
+
+func _fps(_time: float) -> int
+  if $_time == 0
+    $_time = 1.0
+  end
+
+  return $int($_time / 1)
+
 end

@@ -1,12 +1,16 @@
-#!/home/katsu/Proyectos/GybinScript/Core/Gybin.py
+#!/usr/bin/Gybin
+-- Execute setup-linux!
 
 @use files
+
+#reserved var test: str = "Hi"
 
 func init() -> NULL
     $print("GBN version " + $GBN.VERSION + " available now!" + "\nBy " + $GBN.AUTHOR)
 
     $breakpoint()
 
+    $print($test)
     $print($_list_dir("Core/"))
 end
 

@@ -1,14 +1,14 @@
 # GybinScript — User Manual
 
-> **Version:** 1.3.0
+> **Version:** 1.4.0
 > **File Extension:** `.gbn`
-> **Interpreter:** `Core/Gybin.py`
-> **Execution:** `python3 (Interpreter dir: Core/Gybin.py) (File dir: My_script.gbn)`
+> **Interpreter:** `Core/Gybin`
+> **Execution:** `python3 (Interpreter dir: Core/Gybin) (File dir: My_script.gbn)`
 
 > ! You can also declare the interpreter on the first line of your code and run it like any other program. (Linux only) Example:
 
 ```gbn
-#!/home/(user)/GybinScript/Core/Gybin.py -- Parser dir
+#!/usr/bin/Gybin -- Parser dir
 
 $print("Hello!")
 ```
@@ -17,6 +17,8 @@ $print("Hello!")
 chmod +x My_script.gbn
 ./My_script.gbn
 ```
+
+> Execute setup-linux to configure a Gybin launcher in '/usr/bin'
 
 ---
 

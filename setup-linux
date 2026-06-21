@@ -1,0 +1,23 @@
+#!/bin/bash
+
+if [ "$EUID" -ne 0 ]; then
+  echo "Execute with sudo: sudo ./setup-linux"
+  exit 1
+fi
+
+dir="/usr/bin/Gybin"
+installdir="/opt/GybinScript"
+
+echo "Setting..."
+
+mkdir -p "$installdir"
+cp -r ./* "$installdir/"
+
+cat << 'EOF' > "$dir"
+#!/bin/bash
+exec /opt/GybinScript/Core/Gybin "$@"
+EOF
+
+chmod +x "$dir"
+
+echo "Success!"

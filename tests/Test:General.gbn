@@ -17,7 +17,7 @@ class Player
     var name: str[32] = NULL
     var hp: int = NULL
 
-    var inventory: array[any] = []
+    var inventory: array[Item] = []
 
     func init(self, name: str[32]) -> NULL
         $self.name = $name
@@ -30,7 +30,7 @@ class Player
 
 end
 
-var player: any = $Player("Hero")
+var player: Player = $Player("Hero")
 
 func init() -> NULL
     $player.add_item($Item("Sword", $ItemType.WEAPON))
