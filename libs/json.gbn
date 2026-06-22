@@ -1,15 +1,15 @@
 -- Json support library for GBN
 
-@from .sys.py @as sys
+@from .sys.py @as __sys
 
-func _dumps(_entry: str) -> any
-    return $sys.json_dump($entry)
+func _dumps(_entry: dict) -> any
+    return $__sys.json_dump($_entry)
 end
 
 func _load(_file: str) -> any
-    return $sys.json_load($file)
+    return $__sys.json_load($_file)
 end
 
-func _read(_entry: str) -> any
-    return $sys.json_read($entry)
+func _read(_entry: any) -> any
+    return $__sys.json_read($_entry)
 end

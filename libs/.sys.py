@@ -74,9 +74,8 @@ def path_exists(file_path: str) -> bool:
 
 
 def path_parent(file_path: str):
-    route = Path(file_path)
-    return route.parent()
-
+    p = Path(file_path)
+    return str(p.parent)
 
 def cp_path(file_path: str, new_path: str) -> None:
     shutil.copy2(file_path, new_path)

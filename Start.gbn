@@ -2,16 +2,28 @@
 -- Execute setup-linux!
 
 @use files
+@use json
+
+var testJson: dict[int][3] = {"one": 1, "two": 2, "tree": 3}
+var jsonResult: any = {}
 
 #reserved var test: str = "Hi"
 
 func init() -> NULL
     $print("GBN version " + $GBN.VERSION + " available now!" + "\nBy " + $GBN.AUTHOR)
 
-    $breakpoint()
+    -- $breakpoint()
 
     $print($test)
     $print($_list_dir("Core/"))
+
+    $pause()
+
+    $jsonResult = $_dumps($testJson)
+    $print($jsonResult)
+
+    $print($_dir_parent("/home/"))
+
 end
 
 run

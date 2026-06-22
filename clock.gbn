@@ -6,7 +6,6 @@
 func init() -> NULL
     $print($_format_time())
     $pause()
-
 end
 
 run
