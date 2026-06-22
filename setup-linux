@@ -19,5 +19,6 @@ exec /opt/GybinScript/Core/Gybin "$@"
 EOF
 
 chmod +x "$dir"
+chown -R $SUDO_USER:$SUDO_USER "$installdir"
 
 echo "Success!"
