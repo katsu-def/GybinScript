@@ -58,7 +58,7 @@ Name=GybinScript
 Comment=Ejecuta scripts de Gybin (.gbn)
 Exec=$dir %f
 Icon=$icon_installed
-Terminal=false
+Terminal=true
 MimeType=$mime_type;
 Categories=Development;Utility;
 EOF
