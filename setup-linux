@@ -7,6 +7,14 @@ fi
 
 dir="/usr/bin/Gybin"
 installdir="/opt/GybinScript"
+icon_theme_dir="/usr/share/icons/hicolor"
+mime_type="application/x-gybin-script"
+mime_icon_name="application-x-gybin-script"
+
+real_user="${SUDO_USER:-$USER}"
+user_home=$(getent passwd "$real_user" | cut -d: -f6)
+desktop_dir="$user_home/.local/share/applications"
+icon_installed="$installdir/Gybin.ico"
 
 echo "Setting..."
 
@@ -19,6 +27,51 @@ exec /opt/GybinScript/Core/Gybin "$@"
 EOF
 
 chmod +x "$dir"
-chown -R $SUDO_USER:$SUDO_USER "$installdir"
+chown -R "$real_user":"$real_user" "$installdir"
+
+echo "Install icon..."
+mkdir -p "$icon_theme_dir/256x256/apps" "$icon_theme_dir/256x256/mimetypes"
+cp "$icon_installed" "$icon_theme_dir/256x256/apps/gybinscript.ico"
+cp "$icon_installed" "$icon_theme_dir/256x256/mimetypes/$mime_icon_name.ico"
+
+echo "Register .gbn files..."
+mkdir -p /usr/share/mime/packages
+cat << EOF > /usr/share/mime/packages/gybinscript.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="$mime_type">
+    <comment>Script de Gybin</comment>
+    <glob pattern="*.gbn"/>
+    <icon name="$mime_icon_name"/>
+  </mime-type>
+</mime-info>
+EOF
+
+echo "Create .desktop launcher..."
+mkdir -p "$desktop_dir"
+chown -R "$real_user":"$real_user" "$user_home/.local/share/applications"
+
+cat << EOF > "$desktop_dir/gybinscript.desktop"
+[Desktop Entry]
+Type=Application
+Name=GybinScript
+Comment=Ejecuta scripts de Gybin (.gbn)
+Exec=$dir %f
+Icon=$icon_installed
+Terminal=false
+MimeType=$mime_type;
+Categories=Development;Utility;
+EOF
+
+chown "$real_user":"$real_user" "$desktop_dir/gybinscript.desktop"
+chmod +x "$desktop_dir/gybinscript.desktop"
+
+echo "Update cache's system..."
+update-mime-database /usr/share/mime >/dev/null 2>&1
+gtk-update-icon-cache -f -t "$icon_theme_dir" >/dev/null 2>&1
+update-desktop-database "$desktop_dir" >/dev/null 2>&1
+
+echo "Set GybinScript for .gbn files to default program..."
+su - "$real_user" -c "xdg-mime default gybinscript.desktop $mime_type" >/dev/null 2>&1
 
 echo "Success!"

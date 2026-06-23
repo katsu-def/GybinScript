@@ -1,106 +1,108 @@
-# GybinScript — Manual de Uso
+# GybinScript — User Manual
 
-> **Versión:** 1.4.0  
-> **Extensión de archivos:** `.gbn`  
-> **Intérprete:** `Core/Gybin` \ `/usr/bin/Gybin`
-> **Ejecución:** `Gybin (Dirección de archivo: Mi_script.gbn)`
+> [Read this manual in Spanish (README-ES.md)](./README-ES.md)
 
-> ! Tambien puedes declarar el interprete en la primera linea de tu código y ejecutarlo como cualquier programa. (Solo en linux) Ej: 
+> **Version:** 1.4.0a  
+> **File extension:** `.gbn`  
+> **Interpreter:** `Core/Gybin` \ `/usr/bin/Gybin`
+> **Execution:** `Gybin (File path: My_script.gbn)`
+
+> ! You can also declare the interpreter on the first line of your code and run it like any other program. (Linux only) E.g.:
 
 ```gbn
-#!/usr/bin/Gybin -- Dirección del parser
+#!/usr/bin/Gybin -- Parser path
 
-$print("Hola!") 
+$print("Hello!") 
 ```
 
 ```bash
-chmod +x Mi_script.gbn
-./Mi_script.gbn
+chmod +x My_script.gbn
+./My_script.gbn
 ```
 
-> Ejecute setup-linux para configurar el lanzador de Gybin en '/usr/bin'
+> Run setup-linux to configure the Gybin launcher in '/usr/bin'
 
 ---
 
-## Índice
+## Table of Contents
 
-1. [Introducción](#1-introducción)
-2. [Ejecución desde consola](#2-ejecución-desde-consola)
-3. [Tipos de datos](#3-tipos-de-datos)
-4. [Variables y constantes](#4-variables-y-constantes)
-5. [Comentarios](#5-comentarios)
-6. [Operadores](#6-operadores)
-7. [Funciones](#7-funciones)
-8. [Clases](#8-clases)
-9. [Herencia](#9-herencia)
+1. [Introduction](#1-introduction)
+2. [Running from the console](#2-running-from-the-console)
+3. [Data types](#3-data-types)
+4. [Variables and constants](#4-variables-and-constants)
+5. [Comments](#5-comments)
+6. [Operators](#6-operators)
+7. [Functions](#7-functions)
+8. [Classes](#8-classes)
+9. [Inheritance](#9-inheritance)
 10. [Enums](#10-enums)
 11. [Arrays](#11-arrays)
-12. [Diccionarios](#12-diccionarios)
-13. [Estructuras de control](#13-estructuras-de-control)
-14. [Manejo de errores](#14-manejo-de-errores)
-15. [Punteros](#15-punteros)
-16. [Módulos e importaciones](#16-módulos-e-importaciones)
-17. [Gestión de memoria](#17-gestión-de-memoria)
-18. [Funciones nativas (built-ins)](#18-funciones-nativas-built-ins)
-19. [Biblioteca estándar (stdutils)](#19-biblioteca-estándar-stdutils)
-20. [Compilación a ejecutable](#20-compilación-a-ejecutable)
-21. [Advertencias y análisis estático](#21-advertencias-y-análisis-estático)
-22. [Reglas y buenas prácticas](#22-reglas-y-buenas-prácticas)
+12. [Dictionaries](#12-dictionaries)
+13. [Control structures](#13-control-structures)
+14. [Error handling](#14-error-handling)
+15. [Pointers](#15-pointers)
+16. [Modules and imports](#16-modules-and-imports)
+17. [Memory management](#17-memory-management)
+18. [Built-in functions](#18-built-in-functions)
+19. [Standard library (stdutils)](#19-standard-library-stdutils)
+20. [Compiling to an executable](#20-compiling-to-an-executable)
+21. [Warnings and static analysis](#21-warnings-and-static-analysis)
+22. [Rules and best practices](#22-rules-and-best-practices)
 
 ---
 
-## 1. Introducción
+## 1. Introduction
 
-GybinScript es un lenguaje de scripting de tipado estático e interpretado, con gestión de memoria controlada. Está diseñado para ser expresivo y predecible: todas las variables deben declararse con tipo, los bloques se cierran con `end`, y el signo `$` es el prefijo obligatorio para leer o modificar cualquier variable o llamar a cualquier función.
+GybinScript is a statically typed, interpreted scripting language with controlled memory management. It is designed to be expressive and predictable: every variable must be declared with a type, blocks are closed with `end`, and the `$` sign is the mandatory prefix for reading or modifying any variable or calling any function.
 
 ---
 
-## 2. Ejecución desde consola
+## 2. Running from the console
 
 ```bash
-Gybin mi_script.gbn [opciones]
+Gybin my_script.gbn [options]
 ```
 
-### Opciones disponibles
+### Available options
 
-| Flag | Descripción |
+| Flag | Description |
 |------|-------------|
-| `--sm` | Muestra el estado de memoria al finalizar la ejecución |
-| `--pr` | Imprime automáticamente todos los valores devueltos por `return` |
-| `--t` | Muestra el tiempo de ejecución |
-| `--tr` | Muestra cada línea ejecutada en lugar de la salida normal |
-| `--c` | Compila el script a un ejecutable si no hay errores |
-| `--fc` | Compila el script aunque haya errores |
-| `--w` | Activa los mensajes de advertencia (análisis estático) |
-| `--nc` | Suprime toda salida estándar (los errores siguen mostrándose) |
+| `--sm` | Shows the memory state when execution finishes |
+| `--pr` | Automatically prints every value returned by `return` |
+| `--t` | Shows the execution time |
+| `--tr` | Shows each executed line instead of the normal output |
+| `--c` | Compiles the script into an executable if there are no errors |
+| `--fc` | Compiles the script even if there are errors |
+| `--w` | Enables warning messages (static analysis) |
+| `--nc` | Suppresses all standard output (errors are still shown) |
 
-### Ejemplo
+### Example
 
 ```bash
-Gybin juego.gbn --sm --w --t
+Gybin game.gbn --sm --w --t
 ```
 
 ---
 
-## 3. Tipos de datos
+## 3. Data types
 
-GybinScript tiene seis tipos primitivos y dos tipos de colección:
+GybinScript has six primitive types and two collection types:
 
-| Tipo | Descripción | Ejemplo |
+| Type | Description | Example |
 |------|-------------|---------|
-| `int` | Entero | `20` |
+| `int` | Integer | `20` |
 | `float` | Decimal | `3.1416` |
-| `str[N]` | Cadena con tamaño máximo N | `"Carlos"` |
-| `bool` | Booleano | `true` / `false` |
-| `any` | Sin restricción de tipo | — |
-| `NULL` | Valor nulo / ausencia de valor | `NULL` |
-| `array[T,...]` | Lista tipada de elementos | `[1, 2, 3]` |
-| `dict[V,...]` | Diccionario tipado de valores | `{"a": 1}` |
+| `str[N]` | String with maximum size N | `"Carlos"` |
+| `bool` | Boolean | `true` / `false` |
+| `any` | No type restriction | — |
+| `NULL` | Null value / absence of value | `NULL` |
+| `array[T,...]` | Typed list of elements | `[1, 2, 3]` |
+| `dict[V,...]` | Typed dictionary of values | `{"a": 1}` |
 
-**Coerciones automáticas:**
-- Un `int` asignado a un `float` se convierte automáticamente a `float`.
-- Un `float` sin parte decimal asignado a un `int` se convierte a `int`.
-- Un `float` con decimales asignado a un `int` produce un error de tipo.
+**Automatic coercions:**
+- An `int` assigned to a `float` is automatically converted to `float`.
+- A `float` with no decimal part assigned to an `int` is converted to `int`.
+- A `float` with decimals assigned to an `int` produces a type error.
 
 ```gbn
 var age: int = 20
@@ -116,122 +118,132 @@ $print($name)
 
 ---
 
-## 4. Variables y constantes
+## 4. Variables and constants
 
-### Declaración de variables
+### Declaring variables
 
-La sintaxis básica es `var nombre: tipo = valor`. El signo `$` se usa para leer o modificar la variable después de declararla.
+The basic syntax is `var name: type = value`. The `$` sign is used to read or modify the variable after it has been declared.
 
 ```gbn
 var hp: int = 100
 $hp = 50
 ```
 
-### Tamaño en el nombre (shorthand)
+### Size in the name (shorthand)
 
-Puedes especificar el tamaño máximo directamente en el nombre de la variable en lugar de en la anotación:
-
-```gbn
-var buffer[128]: str = "hola"
-```
-
-### Tipos múltiples
-
-Una variable puede aceptar más de un tipo separando con comas. Se recomienda usarlos con moderación:
+You can specify the maximum size directly in the variable name instead of in the type annotation:
 
 ```gbn
-var dato: int,str = 10
-$dato = "texto"
+var buffer[128]: str = "hello"
 ```
 
-### Constantes
+### Multiple types
 
-Las constantes se declaran con `const` y no pueden ser reasignadas:
+A variable can accept more than one type by separating them with commas. It is recommended to use this sparingly:
+
+```gbn
+var data: int,str = 10
+$data = "text"
+```
+
+### Constants
+
+Constants are declared with `const` and cannot be reassigned:
 
 ```gbn
 const MAX_HP: int = 200
 ```
 
-Intentar modificar una constante produce un error de tipo (`Immutable constant`).
+Trying to modify a constant produces a type error (`Immutable constant`).
 
 ### `#onready`
 
-El modificador `#onready` declara una variable antes de que el programa comience a ejecutarse, útil para inicialización anticipada de dependencias:
+The `#onready` modifier declares a variable before the program starts running, useful for early initialization of dependencies:
 
 ```gbn
 #onready var config: str[64] = "default"
 ```
 
-### `NULL` como valor vacío
+When used, reassignments of the same value are also prevented.
 
-`NULL` representa la ausencia de valor. Los objetos y variables complejas se declaran con `NULL` cuando aún no tienen contenido definitivo:
+### `#reserved`
+
+`#reserved` is used to declare elements of a script as private, meaning they cannot be used outside the script where they were declared:
+
+```gbn
+#reserved var critical: bool = false
+```
+
+### `NULL` as an empty value
+
+`NULL` represents the absence of a value. Objects and complex variables are declared with `NULL` when they don't yet have definitive content:
 
 ```gbn
 var name: str[32] = NULL
 var hp: int = NULL
 ```
 
-> ! El intérprete ignora objetos con valor `NULL` hasta que se les asigna uno. En arrays y dicts, es mejor inicializar con `[]` o `{}` en lugar de `NULL` si planeas agregar elementos de inmediato.
+> ! The interpreter ignores objects with a `NULL` value until one is assigned to them. For arrays and dicts, it's better to initialize with `[]` or `{}` instead of `NULL` if you plan to add elements right away.
 
 ---
 
-## 5. Comentarios
+## 5. Comments
 
-### Comentario de línea
+### Line comment
 
-Comienza con `--` y se extiende hasta el final de la línea:
-
-```gbn
-var x: int = 5 -- esto es un comentario
-```
-
-### Comentario de bloque
-
-Se delimita con `!*` al inicio y `!*` al cierre. Puede abarcar múltiples líneas:
+Starts with `--` and extends to the end of the line:
 
 ```gbn
-!* Este es un comentario
-   de varias líneas !*
+var x: int = 5 -- this is a comment
 ```
 
-> Los comentarios de bloque no anidados: el segundo `!*` cierra el bloque abierto por el primero.
+### Block comment
+
+Delimited by `!*` at the start and `!*` at the end. It can span multiple lines:
+
+```gbn
+!* This is a comment
+   spanning multiple lines !*
+```
+
+> Block comments are not nested: the second `!*` closes the block opened by the first one.
 
 ---
 
-## 6. Operadores
+## 6. Operators
 
-### Aritméticos
+### Arithmetic
 
-| Operador | Operación |
+| Operator | Operation |
 |----------|-----------|
-| `+` | Suma |
-| `-` | Resta |
-| `*` | Multiplicación |
-| `/` | División |
-| `%` | Módulo |
-| `**` | Potencia |
+| `+` | Addition |
+| `-` | Subtraction |
+| `*` | Multiplication |
+| `/` | Division |
+| `%` | Modulo |
+| `**` | Power |
 
-### Comparación
+### Comparison
 
-| Operador | Significado |
-|----------|-------------|
-| `==` | Igual |
-| `!=` | Distinto |
-| `<` | Menor que |
-| `<=` | Menor o igual |
-| `>` | Mayor que |
-| `>=` | Mayor o igual |
-| `is` | Igual por valor (equivalente a `==`) |
+| Operator | Meaning |
+|----------|---------|
+| `==` | Equal |
+| `!=` | Not equal |
+| `<` | Less than |
+| `<=` | Less than or equal |
+| `>` | Greater than |
+| `>=` | Greater than or equal |
+| `is` | Equal by value (equivalent to `==`) |
 
-### Lógicos
+### Logical
 
-| Operador | Significado |
-|----------|-------------|
-| `and` | Y lógico |
-| `or` | O lógico |
-| `not` | Negación |
+| Operator | Meaning |
+|----------|---------|
+| `and` | Logical AND |
+| `or` | Logical OR |
+| `not` | Negation |
 
-### Asignación compuesta
+### Compound assignment
 
 ```gbn
 $x += 5
@@ -242,25 +254,25 @@ $x /= 4
 
 ---
 
-## 7. Funciones
+## 7. Functions
 
-### Declaración
+### Declaration
 
 ```gbn
-func nombre(param1: tipo, param2: tipo) -> tipo_retorno
-    -- cuerpo
+func name(param1: type, param2: type) -> return_type
+    -- body
 end
 ```
 
-El tipo de retorno es obligatorio. Usa `NULL` si la función no retorna nada:
+The return type is mandatory. Use `NULL` if the function doesn't return anything:
 
 ```gbn
-func saludar(nombre: str[32]) -> NULL
-    $print("Hola " + $nombre)
+func greet(name: str[32]) -> NULL
+    $print("Hello " + $name)
 end
 ```
 
-### Función con retorno
+### Function with a return value
 
 ```gbn
 func add(a: int, b: int) -> int
@@ -271,57 +283,57 @@ var result: int = $add(10, 20)
 $print($result)
 ```
 
-### Llamada a funciones
+### Calling functions
 
-Todas las llamadas deben ir precedidas de `$`:
+All calls must be preceded by `$`:
 
 ```gbn
-$saludar("Carlos")
+$greet("Carlos")
 $print($multiply($result, 2))
 ```
 
-### Función principal (`init`) y `run`
+### Main function (`init`) and `run`
 
-La palabra clave `run` ejecuta la función `init()` definida en el ámbito global. Esta es la forma estándar de estructurar el punto de entrada de un programa:
+The `run` keyword executes the `init()` function defined in the global scope. This is the standard way to structure a program's entry point:
 
 ```gbn
 func init() -> NULL
-    $print("Inicio del programa")
+    $print("Program start")
 end
 
 run
 ```
 
-> La función `init()` dentro de una clase es el constructor de esa clase, y no choca con la `init()` global porque se usan en contextos distintos.
+> The `init()` function inside a class is that class's constructor, and it doesn't clash with the global `init()` because they are used in different contexts.
 
 ---
 
-## 8. Clases
+## 8. Classes
 
-### Declaración
+### Declaration
 
 ```gbn
-class NombreClase
-    var campo: tipo = NULL
+class ClassName
+    var field: type = NULL
 
-    func init(self, param: tipo) -> NULL
-        $self.campo = $param
+    func init(self, param: type) -> NULL
+        $self.field = $param
     end
 
 end
 ```
 
-`self` hace referencia a la instancia actual y se pasa automáticamente como primer argumento cuando se llama a un método. No necesitas pasarlo al instanciar:
+`self` refers to the current instance and is passed automatically as the first argument when a method is called. You don't need to pass it when instantiating:
 
 ```gbn
-var p: any = $Player("Juan")
+var p: any = $Player("John")
 $print($p.name)
 $print($p.hp)
 ```
 
-### Métodos
+### Methods
 
-Los métodos se definen dentro de la clase igual que funciones, recibiendo `self` como primer parámetro:
+Methods are defined inside the class just like functions, receiving `self` as the first parameter:
 
 ```gbn
 class Player
@@ -337,14 +349,14 @@ class Player
 
 end
 
-var p: any = $Player()
+var p: Player = $Player()
 $p.damage(30)
 $print($p.hp)  -- 70
 ```
 
-### Acceso a campos
+### Accessing fields
 
-Se accede con punto (`.`) sin `$`:
+Accessed with a dot (`.`) without `$`:
 
 ```gbn
 $print($p.name)
@@ -353,9 +365,9 @@ $p.hp = 50
 
 ---
 
-## 9. Herencia
+## 9. Inheritance
 
-Una clase puede extender otra con `extends`:
+A class can extend another with `extends`:
 
 ```gbn
 class Entity
@@ -377,18 +389,18 @@ class Enemy extends Entity
 
 end
 
-var e: any = $Enemy()
+var e: Enemy = $Enemy()
 $print($e.hp)     -- 50
 $print($e.damage) -- 10
 ```
 
->  **Importante:** Si la clase padre ya tiene un método `init()`, la clase hija debe usar `__init__()` en su lugar para evitar conflicto de nombres. La clase hija hereda todos los campos y métodos de la clase padre.
+> ! If the parent class already has an `init()` method, the child class must use `__init__()` instead to avoid a name conflict. The child class inherits all fields and methods from the parent class.
 
 ---
 
 ## 10. Enums
 
-Los enums agrupan constantes con nombre bajo un tipo común:
+Enums group named constants under a common type:
 
 ```gbn
 enum Direction = {UP, DOWN, LEFT, RIGHT}
@@ -397,9 +409,9 @@ var dir: int = Direction.UP
 $print($dir)  -- 0
 ```
 
-Los valores se asignan automáticamente a partir de `0`. Se accede a ellos con `NombreEnum.MIEMBRO`.
+Values are automatically assigned starting from `0`. They are accessed with `EnumName.MEMBER`.
 
-### Enums en clases
+### Enums in classes
 
 ```gbn
 enum ItemType = {WEAPON, ARMOR, CONSUMABLE}
@@ -415,30 +427,30 @@ class Item
 
 end
 
-var espada: any = $Item("Sword", $ItemType.WEAPON)
+var sword: Item = $Item("Sword", $ItemType.WEAPON)
 ```
 
 ---
 
 ## 11. Arrays
 
-### Declaración
+### Declaration
 
 ```gbn
 var numbers: array[int] = []
 ```
 
-Usa `[]` para inicializar un array vacío. Usar `NULL` sin asignar elementos inmediatamente causará un error al intentar añadir.
+Use `[]` to initialize an empty array. Using `NULL` without immediately assigning elements will cause an error when trying to add to it.
 
-### Métodos de array
+### Array methods
 
-| Método | Descripción |
+| Method | Description |
 |--------|-------------|
-| `.append(valor)` | Añade un elemento al final |
-| `.remove(indice)` | Elimina el elemento en la posición dada |
-| `.size()` | Retorna el número de elementos |
-| `.duplicate()` | Retorna una copia del array |
-| `.push_back(valor)` | Alias de `append` |
+| `.append(value)` | Adds an element to the end |
+| `.remove(index)` | Removes the element at the given position |
+| `.size()` | Returns the number of elements |
+| `.duplicate()` | Returns a copy of the array |
+| `.push_back(value)` | Alias for `append` |
 
 ```gbn
 $numbers.append(10)
@@ -451,17 +463,15 @@ $numbers[1] = 50
 $print($numbers)       -- [10, 50, 30]
 ```
 
-### Arrays con tamaño máximo
+### Arrays with a maximum size
 
 ```gbn
-var lista: array[int][10] = []
+var list: array[int][10] = []
 ```
 
-Esto limita el array a un máximo de 10 elementos.
+This limits the array to a maximum of 10 elements.
 
-### Arrays de objetos
-
-Se recomienda usar `any` para arrays que contienen instancias de clase:
+### Arrays of objects
 
 ```gbn
 var enemies: array[any] = []
@@ -471,15 +481,15 @@ $print($enemies[2].hp)
 
 ---
 
-## 12. Diccionarios
+## 12. Dictionaries
 
-### Declaración
+### Declaration
 
 ```gbn
 var inventory: dict[int] = {}
 ```
 
-### Uso básico
+### Basic usage
 
 ```gbn
 $inventory["Potion"] = 5
@@ -487,7 +497,7 @@ $inventory["Sword"] = 1
 $print($inventory)  -- {"Potion": 5, "Sword": 1}
 ```
 
-### Diccionarios de objetos
+### Dictionaries of objects
 
 ```gbn
 var inventory: dict[any] = {}
@@ -495,31 +505,31 @@ $inventory["weapon"] = Item("Sword")
 $print($inventory["weapon"].name)
 ```
 
-### Métodos de diccionario
+### Dictionary methods
 
-| Método | Descripción |
+| Method | Description |
 |--------|-------------|
-| `.size()` | Retorna el número de entradas |
-| `.remove(clave)` | Elimina la entrada con esa clave |
-| `.duplicate()` | Retorna una copia del diccionario |
+| `.size()` | Returns the number of entries |
+| `.remove(key)` | Removes the entry with that key |
+| `.duplicate()` | Returns a copy of the dictionary |
 
 ---
 
-## 13. Estructuras de control
+## 13. Control structures
 
-### Condicional `if / elseif / else`
+### `if / elseif / else` conditional
 
 ```gbn
 if $x > 10
-    $print("mayor")
+    $print("greater")
 elseif $x == 10
-    $print("igual")
+    $print("equal")
 else
-    $print("menor")
+    $print("less")
 end
 ```
 
-### Bucle `while`
+### `while` loop
 
 ```gbn
 var i: int = 0
@@ -529,9 +539,9 @@ while $i < 10
 end
 ```
 
-### Bucle `for in`
+### `for in` loop
 
-Itera sobre arrays, rangos o diccionarios:
+Iterates over arrays, ranges, or dictionaries:
 
 ```gbn
 for item in $enemies
@@ -543,18 +553,18 @@ for n in $range(5)
 end
 ```
 
-### Palabras clave de control de bucles
+### Loop control keywords
 
-| Keyword | Comportamiento |
-|---------|----------------|
-| `break` | Sale del bucle actual |
-| `continue` | Salta a la siguiente iteración |
-| `loop` | Reinicia la iteración actual desde el principio |
-| `pass` | No hace nada (marcador de bloque vacío) |
+| Keyword | Behavior |
+|---------|----------|
+| `break` | Exits the current loop |
+| `continue` | Jumps to the next iteration |
+| `loop` | Restarts the current iteration from the beginning |
+| `pass` | Does nothing (placeholder for an empty block) |
 
 ### `await`
 
-Pausa la ejecución hasta que una condición sea verdadera (polling cada 10ms):
+Pauses execution until a condition is true (polling every 10ms):
 
 ```gbn
 await $ready == true
@@ -562,128 +572,128 @@ await $ready == true
 
 ---
 
-## 14. Manejo de errores
+## 14. Error handling
 
 ```gbn
 try
-    -- código que puede fallar
+    -- code that might fail
 catch
-    -- código que se ejecuta si hay un error
+    -- code that runs if there is an error
 end
 ```
 
-También se acepta `except` como alias de `catch`:
+`except` is also accepted as an alias for `catch`:
 
 ```gbn
 try
-    var x: int = $int("no_es_numero")
+    var x: int = $int("not_a_number")
 except
-    $print("Ocurrió un error de conversión")
+    $print("A conversion error occurred")
 end
 ```
 
 ---
 
-## 15. Punteros
+## 15. Pointers
 
-El operador `$$` crea un puntero a una variable existente. Al leer el puntero, se obtiene el valor actual de la variable apuntada:
+The `$$` operator creates a pointer to an existing variable. Reading the pointer gives you the current value of the variable it points to:
 
 ```gbn
 var hp: int = 100
 var ref: any = $$hp
 
-$print($ref)  -- Muestra el valor de hp a través del puntero
+$print($ref)  -- Shows the value of hp through the pointer
 ```
 
-Los punteros permiten acceso indirecto y pueden apuntar a rutas complejas (`$$objeto.campo`, `$$array[0]`). Son útiles para alias y referencias dinámicas.
+Pointers allow indirect access and can point to complex paths (`$$object.field`, `$$array[0]`). They are useful for aliases and dynamic references.
 
 ---
 
-## 16. Módulos e importaciones
+## 16. Modules and imports
 
-### `@use` — importar un módulo
+### `@use` — importing a module
 
-Carga un archivo `.gbn` (u otro soportado) y expone todos sus símbolos en el ámbito actual:
+Loads a `.gbn` file (or another supported type) and exposes all of its symbols in the current scope:
 
 ```gbn
 @use "utils.gbn"
-@use "helpers"        -- detecta la extensión automáticamente
+@use "helpers"        -- detects the extension automatically
 ```
 
-La importación es idempotente: si un módulo ya fue cargado, no se vuelve a ejecutar.
+The import is idempotent: if a module has already been loaded, it won't be run again.
 
-### `@from` / `@as` — importar con alias
+### `@from` / `@as` — importing with an alias
 
-Carga un módulo y lo expone como un namespace con nombre:
+Loads a module and exposes it as a named namespace:
 
 ```gbn
 @from "utils.gbn" @as utils
-$print($utils.mi_funcion())
+$print($utils.my_function())
 ```
 
-### Formatos soportados
+### Supported formats
 
-| Extensión | Comportamiento |
-|-----------|----------------|
-| `.gbn` | Se ejecuta e integra al ámbito actual |
-| `.py` | Se carga como módulo Python; sus atributos públicos se exponen |
-| `.c`, `.cpp`, `.asm`, `.sh`, `.bash`, `.h` | El código fuente se expone como diccionario bajo `__source__` |
+| Extension | Behavior |
+|-----------|----------|
+| `.gbn` | Executed and merged into the current scope |
+| `.py` | Loaded as a Python module; its public attributes are exposed |
+| `.c`, `.cpp`, `.asm`, `.sh`, `.bash`, `.h` | The source code is exposed as a dictionary under `__source__` |
 
-### Búsqueda automática de módulos
+### Automatic module lookup
 
-Si el path no contiene `/` y no empieza con `.`, el intérprete también busca en la carpeta `libs/` del proyecto.
+If the path doesn't contain `/` and doesn't start with `.`, the interpreter also looks in the project's `libs/` folder.
 
 ---
 
-## 17. Gestión de memoria
+## 17. Memory management
 
-El intérprete tiene un límite configurable de **1024 slots** de memoria por defecto.
+The interpreter has a configurable limit of **1024 memory slots** by default.
 
-### `free` — liberar una variable
+### `free` — releasing a variable
 
-Elimina explícitamente una variable del ámbito:
+Explicitly removes a variable from scope:
 
 ```gbn
-$free($mi_variable) 
+$free($my_variable) 
 ```
 
-### `expand_memory` — ampliar el límite
+### `expand_memory` — increasing the limit
 
-Aumenta el número máximo de slots disponibles:
+Increases the maximum number of available slots:
 
 ```gbn
 $expand_memory(512)
 ```
 
-> ! Esto emite una advertencia en `stderr` indicando el cambio.
+> ! This emits a warning on `stderr` indicating the change.
 
-### `breakpoint` — pausar ejecución
+### `breakpoint` — pausing execution
 
-Pausa la ejecución y da un resumen de la memoria:
+Pauses execution and returns a memory summary:
 
 ```gbn
 $breakpoint()
 ```
 
-### Caché de expresiones
+### Expression caching
 
-Las expresiones que aparecen repetidamente (por ejemplo, dentro de un bucle) se almacenan en caché como AST la primera vez que se parsean, evitando reparseos innecesarios en cada ciclo:
+Expressions that appear repeatedly (for example, inside a loop) are cached as an AST the first time they're parsed, avoiding unnecessary re-parsing on each cycle:
 
 ```gbn
 var i: int = 0
 while $i < 10000
-    var x = ($i * 5) + (20 / 2)  -- la expresión se cachea
+    var x = ($i * 5) + (20 / 2)  -- the expression is cached
     $i += 1
 end
 ```
 
-### Garbage collector post-ejecución
+### Post-execution garbage collector
 
-Al terminar la ejecución, el motor libera automáticamente símbolos globales que fueron definidos pero nunca leídos (variables globales, funciones, clases, namespaces importados). También puede usarse `$free($var)` si es necesario.
+When execution finishes, the engine automatically frees global symbols that were defined but never read (global variables, functions, classes, imported namespaces). `$free($var)` can also be used if needed.
 
-### `--sm` — resumen de memoria
+### `--sm` — memory summary
 
-Al usar la flag `--sm`, el intérprete imprime el estado completo de la memoria al terminar:
+When using the `--sm` flag, the interpreter prints the complete memory state at the end:
 
 ```
 Total memory: hp:int=100 | name:str='Juan' | ...
@@ -691,161 +701,169 @@ Total memory: hp:int=100 | name:str='Juan' | ...
 
 ---
 
-## 18. Funciones nativas (built-ins)
+## 18. Built-in functions
 
-Estas funciones están disponibles sin necesidad de importar nada:
+These functions are available without needing to import anything:
 
-| Función | Descripción |
+| Function | Description |
 |---------|-------------|
-| `$print(valor)` | Imprime un valor |
-| `$int(valor)` | Convierte a entero |
-| `$float(valor)` | Convierte a flotante |
-| `$str(valor)` | Convierte a string |
-| `$bool(valor)` | Convierte a booleano |
-| `$range(n)` | Genera un rango de 0 a n-1 |
-| `$len(coleccion)` | Retorna la longitud de una colección |
-| `$file_read(ruta)` | Lee un archivo completo como string |
-| `$file_lines(ruta)` | Lee un archivo como array de líneas |
-| `$file_write(ruta, contenido)` | Escribe (sobreescribe) un archivo |
-| `$file_append(ruta, contenido)` | Añade contenido al final de un archivo |
-| `$file_exists(ruta)` | Retorna `true` si el archivo existe |
+| `$print(value)` | Prints a value |
+| `$int(value)` | Converts to integer |
+| `$float(value)` | Converts to float |
+| `$str(value)` | Converts to string |
+| `$bool(value)` | Converts to boolean |
+| `$range(n)` | Generates a range from 0 to n-1 |
+| `$len(collection)` | Returns the length of a collection |
+| `$file_read(path)` | Reads an entire file as a string |
+| `$file_lines(path)` | Reads a file as an array of lines |
+| `$file_write(path, content)` | Writes (overwrites) a file |
+| `$file_append(path, content)` | Appends content to the end of a file |
+| `$file_exists(path)` | Returns `true` if the file exists |
 
 ---
 
-## 19. Biblioteca estándar (stdutils)
+## 19. Standard library (stdutils)
 
-`stdutils.gbn` se carga automáticamente al inicio de cada programa. Proporciona:
+`stdutils.gbn` is automatically loaded at the start of every program. It provides:
 
-### Constante de versión
+### Version constant
 
 ```gbn
 $print($GBN.VERSION) 
 ```
 
-### Funciones de colecciones
+### Collection functions
 
-| Función | Descripción |
+| Function | Description |
 |---------|-------------|
-| `$contains(coleccion, elemento)` | `true` si el elemento está en la colección |
-| `$index_of(coleccion, elemento)` | Índice del elemento, o `-1` si no existe |
-| `$has_key(dict, clave)` | `true` si la clave existe en el diccionario |
-| `$merge_dict(dest, origen)` | Fusiona `origen` en `dest` y retorna el resultado |
+| `$contains(collection, element)` | `true` if the element is in the collection |
+| `$index_of(collection, element)` | Index of the element, or `-1` if it doesn't exist |
+| `$has_key(dict, key)` | `true` if the key exists in the dictionary |
+| `$merge_dict(dest, source)` | Merges `source` into `dest` and returns the result |
 
-### Funciones de cadenas
+### String functions
 
-| Función | Descripción |
+| Function | Description |
 |---------|-------------|
-| `$str_split(texto, delimitador)` | Divide una cadena en un array |
-| `$str_join(separador, items)` | Une un array de strings en uno solo |
-| `$to_lower(texto)` | Convierte a minúsculas |
-| `$to_upper(texto)` | Convierte a mayúsculas |
-| `$starts_with(texto, prefijo)` | `true` si el texto empieza con el prefijo |
-| `$ends_with(texto, sufijo)` | `true` si el texto termina con el sufijo |
+| `$str_split(text, delimiter)` | Splits a string into an array |
+| `$str_join(separator, items)` | Joins an array of strings into one |
+| `$to_lower(text)` | Converts to lowercase |
+| `$to_upper(text)` | Converts to uppercase |
+| `$starts_with(text, prefix)` | `true` if the text starts with the prefix |
+| `$ends_with(text, suffix)` | `true` if the text ends with the suffix |
 
-### Entrada del usuario
+### User input
 
 ```gbn
-var nombre: str[64] = $input("¿Cómo te llamas? ")
+var name: str[64] = $input("What's your name? ")
+```
+
+### Pause for input
+
+```gbn
+$pause() -- Code stops here
 ```
 
 ---
 
-## 20. Compilación a ejecutable
+## 20. Compiling to an executable
 
-Con la flag `--c`, el intérprete intenta generar un ejecutable standalone usando PyInstaller:
+With the `--c` flag, the interpreter tries to generate a standalone executable using PyInstaller:
 
 ```bash
-Gybin mi_script.gbn --c
+Gybin my_script.gbn --c
 ```
 
-Si PyInstaller no está disponible, se genera un wrapper bash que invoca el intérprete directamente:
+If PyInstaller isn't available, a bash wrapper is generated instead (a `.bat` file on Windows) that invokes the interpreter directly:
 
 ```bash
 #!/usr/bin/env bash
-exec Gybin "mi_script.gbn" "$@"
+exec Gybin "my_script.gbn" "$@"
 ```
 
-Con `--fc`, la compilación se fuerza incluso si el script tiene errores de ejecución.
+A copy of `stdutils` will be created in the same directory where the file is compiled; other dependencies will be compiled normally if PyInstaller is available.
+
+With `--fc`, compilation is forced even if the script has runtime errors.
 
 ---
 
-## 21. Advertencias y análisis estático
+## 21. Warnings and static analysis
 
-Al ejecutar con `--w`, el motor activa un análisis post-ejecución que reporta:
+When running with `--w`, the engine activates a post-execution analysis that reports:
 
-- **Variables declaradas pero nunca leídas**
-- **Funciones definidas pero nunca llamadas**
-- **Funciones con cuerpo vacío**
-- **Clases definidas pero nunca instanciadas**
-- **Clases con cuerpo vacío**
-- **Enums definidos pero nunca usados**
-- **Variables multi-tipo con más de 3 tipos distintos usados**
-- **Asignaciones sospechosas** (tipo declarado distinto al tipo real del valor)
-- **Posibles memory leaks**: contenedores globales con más de 256 elementos nunca leídos
+- **Variables declared but never read**
+- **Functions defined but never called**
+- **Functions with an empty body**
+- **Classes defined but never instantiated**
+- **Classes with an empty body**
+- **Enums defined but never used**
+- **Multi-type variables with more than 3 distinct types used**
+- **Suspicious assignments** (declared type different from the actual type of the value)
+- **Possible memory leaks**: global containers with more than 256 elements that are never read
 
-Las advertencias se imprimen en `stderr` con el formato:
+Warnings are printed to `stderr` in this format:
 
 ```
-Warning: archivo.gbn:42: Variable 'x' is declared but never read
+Warning: file.gbn:42: Variable 'x' is declared but never read
 ```
 
-> Las variables cuyos nombres empiezan con `_` son ignoradas por el analizador (convención de "intencionalmente no usado").
+> Variables whose names start with `_` are ignored by the analyzer (the "intentionally unused" convention).
 
-> Puede que recibas advertencias de código que nunca escribiste, pertenecen a código sin usar de librerías importadas 
+> You may get warnings for code you never wrote — these belong to unused code from imported libraries.
 
 ---
 
-## 22. Reglas y buenas prácticas
+## 22. Rules and best practices
 
-### El operador `$`
+### The `$` operator
 
-`$` es **obligatorio** para:
-- Leer el valor de una variable: `$hp`
-- Llamar a una función: `$print(...)`, `$add(1, 2)`
-- Instanciar una clase: `$Player("Juan")`
-- Asignar a una variable existente: `$hp = 50`
-- Acceso encadenado: `$p.damage(30)`
+`$` is **mandatory** for:
+- Reading a variable's value: `$hp`
+- Calling a function: `$print(...)`, `$add(1, 2)`
+- Instantiating a class: `$Player("John")`
+- Assigning to an existing variable: `$hp = 50`
+- Chained access: `$p.damage(30)`
 
-`$` **no** se usa en:
-- La declaración inicial (`var hp: int = 100`)
-- El acceso a campos de objeto tras el punto (`$p.hp`, no `$p.$hp`)
-- Los nombres de parámetros en la firma de funciones
+`$` is **not** used for:
+- The initial declaration (`var hp: int = 100`)
+- Accessing object fields after the dot (`$p.hp`, not `$p.$hp`)
+- Parameter names in a function signature
 
 ### Scope
 
-Las variables declaradas dentro de un bloque (función, bucle, condicional) son locales a ese bloque. Redefinir en un ámbito interior una variable del exterior puede causar conflictos:
+Variables declared inside a block (function, loop, conditional) are local to that block. Redefining an outer variable inside an inner scope can cause conflicts:
 
 ```gbn
 var global: int = 100
 
 func test() -> NULL
-    var global: int = 50  -- redefinición local
-    $print($global)       -- error: ambigüedad de scope
+    var global: int = 50  -- local redefinition
+    $print($global)       -- error: scope ambiguity
 end
 ```
 
-Se recomienda usar nombres distintos para variables locales que coexisten con variables globales del mismo nombre.
+It's recommended to use different names for local variables that coexist with global variables of the same name.
 
-### Uso de `any`
+### Using `any`
 
-`any` desactiva la verificación de tipo. Se recomienda usarlo únicamente cuando sea estrictamente necesario, como en variables que almacenan valores de tipo desconocido en tiempo de declaración.
+`any` disables type checking. It's recommended to use it only when strictly necessary, such as for variables that store values of an unknown type at declaration time.
 
-### Inicialización de colecciones
+### Initializing collections
 
-Siempre inicializa arrays y dicts con `[]` o `{}` si planeas operar sobre ellos inmediatamente. Usar `NULL` como valor inicial y luego intentar añadir elementos sin asignar primero una colección real producirá un error.
+Always initialize arrays and dicts with `[]` or `{}` if you plan to operate on them right away. Using `NULL` as the initial value and then trying to add elements without first assigning a real collection will produce an error.
 
 ```gbn
--- Correcto:
-var items: array[any] = []
+-- Correct:
+var items: array[Item] = []
 $items.append($Item("Sword"))
 
--- Problemático si se usa append antes de asignar:
-var items: array[any] = NULL
+-- Problematic if append is used before assigning:
+var items: array[Item] = NULL
 $items.append($Item("Sword"))  -- error
 ```
 
-### Cierre de bloques con `end`
+### Closing blocks with `end`
 
-Todo bloque (`func`, `class`, `if`, `while`, `for`, `try`) debe cerrarse con `end`. Un bloque sin cerrar produce un `SyntaxError`.
+Every block (`func`, `class`, `if`, `while`, `for`, `try`) must be closed with `end`. An unclosed block produces a `SyntaxError`.
 
-> ! Si bien se puede escribir fuera de funciones, se recomienda que la mayor parte del script se organice en funciones.
+> ! While it's possible to write code outside of functions, it's recommended that most of the script be organized into functions.

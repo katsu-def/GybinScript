@@ -15,7 +15,7 @@ func init() -> NULL
     -- $breakpoint()
 
     $print($test)
-    $print($_list_dir("Core/"))
+    -- $print($_list_dir("Core/"))
 
     $pause()
 

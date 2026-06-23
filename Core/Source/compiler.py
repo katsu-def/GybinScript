@@ -2,15 +2,31 @@ from __future__ import annotations
 
 # ALL:
 # Este archivo encapsula la generacion de ejecutables.
-# `_create_wrapper_executable` crea un wrapper bash cuando PyInstaller no
-# esta disponible o falla; el wrapper siempre ejecuta `Core/Gybin.py`.
+# `_create_wrapper_executable` crea un wrapper cuando PyInstaller no esta
+# disponible o falla; el wrapper siempre ejecuta `Core/Gybin.py`. En Windows
+# genera un `.bat` (ver `_create_windows_wrapper`); en cualquier otro sistema
+# genera un script bash (ver `_create_unix_wrapper`).
+# `_bundle_dependencies_for_wrapper` copia (plano, por nombre de archivo) todas
+# las dependencias `@use`/`@from` transitivas del script junto al wrapper, y
+# este exporta GYBIN_BUNDLE_DIR para que el motor las siga encontrando aunque
+# el `libs/` original del proyecto no exista en la maquina donde se ejecute
+# (ver get_bundled_libs_dir en runtime.py y resolve_path en engine.py).
+# `_find_source_tree_root` busca, partiendo de la ubicacion real (persistente)
+# del ejecutable, un `Core/engine.py` genuino en disco — presente en una
+# instalacion normal (setup-linux copia el proyecto completo, fuente incluida,
+# junto al binario `Gybin` compilado dentro de `Core/`), pero ausente cuando lo
+# que corre es un script de usuario ya compilado de forma aislada. Esto permite
+# que `--c` compile de verdad con PyInstaller incluso desde un `Gybin`
+# congelado, en lugar de rendirse siempre al wrapper.
 # `_write_pyinstaller_stub` genera un script temporal que carga el `.gbn`
 # embebido y delega la ejecucion al entrypoint principal.
 # `compile_to_executable` intenta construir un binario onefile con
 # PyInstaller y vuelve al wrapper si algo no se puede completar.
-# `stdutils.gbn` NUNCA se embebe en el binario: se copia como archivo de
-# texto plano junto al ejecutable final, para que cualquiera pueda leerla
-# o editarla (ver get_resource_path en runtime.py).
+# `stdutils.gbn` se embebe en el binario como red de seguridad (para quien
+# comparta solo el ejecutable, sin Gybin instalado), y TAMBIEN se copia como
+# archivo de texto plano junto al ejecutable final, para que cualquiera pueda
+# leerla o editarla — get_resource_path() en runtime.py siempre prioriza esa
+# copia externa sobre la embebida cuando ambas existen.
 # El motor solo llama a esta capa; no necesita conocer detalles del build.
 
 import os
@@ -31,20 +47,56 @@ def _interpreter_invocation() -> list[str]:
       use `__file__` here: under PyInstaller it points inside `_MEIPASS`, a private
       temp folder that's wiped as soon as this process exits, so a wrapper script
       written against it would already be broken by the time anyone runs it.
-    - Running from source: fall back to `python3 Core/Gybin.py`, same as before.
+    - Running from source: fall back to `<python> Core/Gybin.py`. The python
+      command name itself is platform-dependent: Windows installs normally only
+      register `python` on PATH (no `python3` alias), while POSIX systems use
+      `python3` to avoid ambiguity with a possible Python 2 `python`.
     """
     if getattr(sys, "frozen", False):
         return [sys.executable]
     parser_path = Path(__file__).resolve().with_name("Gybin.py")
-    return ["python3", str(parser_path)]
+    python_cmd = "python" if os.name == "nt" else "python3"
+    return [python_cmd, str(parser_path)]
 
 
 def _create_wrapper_executable(gbn_path: Path) -> Path:
+    """Dispatch to the platform-appropriate wrapper.
+
+    Windows has no concept of the POSIX executable bit nor of shebang lines, and
+    `cmd.exe`/Explorer only treat `.bat`/`.cmd`/`.exe` as runnable — a file with
+    bash syntax and no extension would just sit there unrunnable. So on Windows
+    we emit a `.bat`; everywhere else (Linux, macOS) we keep the existing bash
+    wrapper, which is directly executable once chmod'ed.
+    """
+    if os.name == "nt":
+        return _create_windows_wrapper(gbn_path)
+    return _create_unix_wrapper(gbn_path)
+
+
+def _create_unix_wrapper(gbn_path: Path) -> Path:
     executable_path = gbn_path.with_suffix("")
+    bundle_dir = _bundle_dependencies_for_wrapper(gbn_path)
     invocation = " ".join(f'"{part}"' for part in _interpreter_invocation())
-    wrapper = f"#!/usr/bin/env bash\nexec {invocation} \"{gbn_path.resolve()}\" \"$@\"\n"
+    env_line = f'export GYBIN_BUNDLE_DIR="{bundle_dir}"\n' if bundle_dir is not None else ""
+    wrapper = f"#!/usr/bin/env bash\n{env_line}exec {invocation} \"{gbn_path.resolve()}\" \"$@\"\n"
     executable_path.write_text(wrapper, encoding="utf-8")
     executable_path.chmod(executable_path.stat().st_mode | 0o111)
+    return executable_path
+
+
+def _create_windows_wrapper(gbn_path: Path) -> Path:
+    # Unlike Unix, Windows needs a recognized extension to actually be runnable
+    # (double-click or bare `name` in cmd.exe) — a bare, extension-less file is
+    # just inert data to it, so `.bat` here is not cosmetic, it's required.
+    executable_path = gbn_path.with_suffix(".bat")
+    bundle_dir = _bundle_dependencies_for_wrapper(gbn_path)
+    invocation = " ".join(f'"{part}"' for part in _interpreter_invocation())
+    env_line = f'set "GYBIN_BUNDLE_DIR={bundle_dir}"\r\n' if bundle_dir is not None else ""
+    # `%*` forwards all arguments through, mirroring "$@" in the bash wrapper.
+    # CRLF line endings, since plain "\n" in a .bat can confuse some legacy
+    # Windows command-line tooling even though modern cmd.exe tolerates it.
+    wrapper = f'@echo off\r\n{env_line}{invocation} "{gbn_path.resolve()}" %*\r\n'
+    executable_path.write_text(wrapper, encoding="utf-8", newline="")
     return executable_path
 
 
@@ -186,29 +238,159 @@ def _collect_imported_gbn_libs(gbn_path: Path) -> list[Path]:
     return collected
 
 
-def compile_to_executable(gbn_path: Path) -> Path:
-    executable_path = gbn_path.with_suffix("")
+def _bundle_dependencies_for_wrapper(gbn_path: Path) -> Path | None:
+    """Copy every transitively-imported .gbn/.py/etc. dependency of `gbn_path`
+    flat (by basename) into a dedicated `<script-stem>_libs/` folder next to it
+    — the exact same flat-by-basename scheme `compile_to_executable` already
+    uses for PyInstaller's `--add-data`/`_MEIPASS` — so the wrapper keeps
+    resolving @use/@from targets even when the project's own `libs/` tree isn't
+    present on whatever machine ends up running it (see
+    runtime.get_bundled_libs_dir() and resolve_path() in engine.py for the
+    matching lookup).
 
-    if getattr(sys, "frozen", False):
-        # This interpreter is itself a frozen, standalone build: there is no Core/
-        # source tree on disk for a fresh PyInstaller invocation to analyze and
-        # bundle (only this process's own embedded bytecode), and there is no
-        # guarantee a `pyinstaller` toolchain (or even Python) exists on this
-        # machine at all — that's the whole point of shipping standalone. Always
-        # fall back to the wrapper, which simply re-invokes this same executable.
-        print(
-            "Note: this is a standalone build, so only a wrapper executable "
-            "(re-invoking this same program) will be created.",
-            file=sys.stderr,
-        )
-        return _create_wrapper_executable(gbn_path)
+    Returns the bundle directory's resolved path, or None (copying nothing)
+    when the script has no imports to bundle — so dependency-free scripts get
+    no extra folder and behave exactly as before this existed.
+    """
+    imported_libs = _collect_imported_gbn_libs(gbn_path)
+    if not imported_libs:
+        return None
 
+    bundle_dir = gbn_path.parent / f"{gbn_path.stem}_libs"
+    bundle_dir.mkdir(exist_ok=True)
+    for lib_path in imported_libs:
+        # Flat by basename, same as the PyInstaller bundle: two deps that
+        # share a basename but came from different folders would collide here
+        # exactly like they would inside a frozen `_MEIPASS` bundle.
+        shutil.copy2(lib_path, bundle_dir / lib_path.name)
+
+    lib_names = ", ".join(p.name for p in imported_libs)
+    print(
+        f"Bundling {len(imported_libs)} imported library/libraries next to the wrapper: {lib_names}",
+        file=sys.stderr,
+    )
+    return bundle_dir.resolve()
+
+
+def _find_source_tree_root(start: Path, max_levels: int = 4) -> Path | None:
+    """Walk upward from `start` looking for a directory whose `Core/` subfolder
+    holds the package's real, importable .py source on disk (engine.py used as
+    the marker file) — mirrors find_libs_dir()'s upward walk in runtime.py,
+    just looking for the source tree instead of a `libs/` folder. Returns the
+    directory that actually CONTAINS that source (which may be `Core/` itself,
+    or `Core/Source/` — see below), or None if nothing turns up.
+
+    This is the piece that lets `compile_to_executable` tell apart different
+    "frozen" situations:
+    - A normally-installed `Gybin` (e.g. `/opt/GybinScript/Core/Gybin`, with
+      `setup-linux` having copied the *whole* project — source included —
+      alongside it) where the .py files sit directly in `Core/`: found at
+      level 0, returns `Core/` itself.
+    - The same kind of install, but where the source has been tidied away into
+      a `Core/Source/` subfolder (a common local convention: keep `Core/`
+      itself down to just the compiled `Gybin` binary + `stdutils.gbn`, and
+      only pull the .py files back out into `Core/` directly while actively
+      developing): found one level deeper, returns `Core/Source/`.
+    - A standalone *script* executable compiled in isolation (no project tree
+      travels with it, e.g. living alone in some user's folder): nothing is
+      found within `max_levels`, so the caller correctly still falls back to
+      the wrapper.
+    """
+    current = start
+    for _ in range(max_levels):
+        core_dir = current / "Core"
+        if (core_dir / "engine.py").is_file():
+            return core_dir
+        tucked_away = core_dir / "Source"
+        if (tucked_away / "engine.py").is_file():
+            return tucked_away
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return None
+
+
+def _prepare_spec_root(temp_dir_path: Path, package_dir: Path) -> Path:
+    """Return a directory to hand PyInstaller as `--paths` so `import
+    Core.Gybin` resolves inside the stub. When `package_dir` is already
+    literally named `Core` (running from source, or a frozen install where the
+    source wasn't tucked away), its own parent already works directly — same
+    as before this existed. Otherwise `package_dir` is the user's own
+    `Core/Source/` tuck-away folder: its *contents* are the real package, but
+    its *name* doesn't match what every internal `from Core.x import y`
+    expects, so we build a small shim inside our own temp build dir — a `Core`
+    symlink pointing at the real files (falling back to a full copy if
+    symlinks aren't available, e.g. unprivileged Windows) — and use that shim
+    directory as `--paths` instead.
+    """
+    if package_dir.name == "Core":
+        return package_dir.parent
+
+    shim_root = temp_dir_path / "_source_shim"
+    shim_root.mkdir(exist_ok=True)
+    shim_core = shim_root / "Core"
+    try:
+        shim_core.symlink_to(package_dir, target_is_directory=True)
+    except OSError:
+        shutil.copytree(package_dir, shim_core)
+    return shim_root
+
+
+def _resolve_pyinstaller_build_inputs(gbn_path: Path) -> tuple[str, Path] | None:
+    """Decide whether a *fresh* PyInstaller build is actually possible right
+    now, and if so return (pyinstaller_executable, package_dir) — the
+    directory that actually holds the real `Core` package source on disk (see
+    `_prepare_spec_root` for how this becomes a usable `--paths`). Returns None
+    when it isn't possible, telling the caller to fall back to the wrapper
+    instead:
+
+    - No `pyinstaller` on PATH at all (source or frozen, doesn't matter).
+    - Running from source: the package dir is simply this file's own directory
+      (`Core/`), exactly as before.
+    - Running as a frozen, standalone build: `__file__` itself points inside
+      the ephemeral `_MEIPASS` (wiped the moment this process exits), useless
+      as a base. Instead we look for a real source tree on disk next to the
+      actual executable file via `_find_source_tree_root()` — present in a
+      normal install, absent for an isolated compiled script.
+    """
     pyinstaller_exe = shutil.which("pyinstaller")
     if pyinstaller_exe is None:
-        print("Warning: PyInstaller not found. Only a bash wrapper executable will be created.", file=sys.stderr)
+        return None
+
+    if not getattr(sys, "frozen", False):
+        return pyinstaller_exe, Path(__file__).resolve().parent
+
+    package_dir = _find_source_tree_root(Path(sys.executable).resolve().parent)
+    if package_dir is None:
+        return None
+    return pyinstaller_exe, package_dir
+
+
+def compile_to_executable(gbn_path: Path) -> Path:
+    # PyInstaller's own --onefile output is always "<name>.exe" on Windows and a
+    # bare "<name>" everywhere else; `output_stem` is what we hand to PyInstaller
+    # via --name (extension-less, since PyInstaller appends ".exe" itself on
+    # Windows), while `executable_path` is the final installed path we actually
+    # write to — it needs the ".exe" suffix on Windows or it won't be runnable.
+    output_stem = gbn_path.with_suffix("")
+    executable_path = output_stem.with_suffix(".exe") if os.name == "nt" else output_stem
+
+    build_inputs = _resolve_pyinstaller_build_inputs(gbn_path)
+    if build_inputs is None:
+        if getattr(sys, "frozen", False):
+            print(
+                "Note: no `pyinstaller` on PATH and/or no accompanying Core/ "
+                "source tree found next to this standalone build, so only a "
+                "wrapper executable (re-invoking this same program) will be created.",
+                file=sys.stderr,
+            )
+        else:
+            wrapper_kind = ".bat" if os.name == "nt" else "bash"
+            print(f"Warning: PyInstaller not found. Only a {wrapper_kind} wrapper executable will be created.", file=sys.stderr)
         return _create_wrapper_executable(gbn_path)
 
-    spec_root = Path(__file__).resolve().parent.parent
+    pyinstaller_exe, package_dir = build_inputs
     stdutils_path = get_resource_path("stdutils.gbn")
 
     # Discover all imported libraries recursively (all supported types, including transitive deps)
@@ -227,6 +409,7 @@ def compile_to_executable(gbn_path: Path) -> Path:
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_dir_path = Path(temp_dir)
+        spec_root = _prepare_spec_root(temp_dir_path, package_dir)
         payload_name = gbn_path.name
         payload_path = temp_dir_path / payload_name
         payload_path.write_text(gbn_path.read_text(encoding="utf-8"), encoding="utf-8")
@@ -242,7 +425,7 @@ def compile_to_executable(gbn_path: Path) -> Path:
             pyinstaller_exe,
             "--onefile",
             "--name",
-            executable_path.name,
+            output_stem.name,
             "--distpath",
             str(dist_dir),
             "--workpath",
@@ -256,6 +439,16 @@ def compile_to_executable(gbn_path: Path) -> Path:
         # Bundle each imported library (all supported types) into the executable
         for lib_path in imported_libs:
             cmd += ["--add-data", f"{lib_path}{os.pathsep}."]
+
+        # Embed stdutils.gbn too, as a fallback for whoever ends up with just the
+        # compiled binary and nothing else — not every machine that receives a
+        # shared executable will have Gybin (or even Core/stdutils.gbn) installed.
+        # get_resource_path() already prefers an external, editable copy over this
+        # embedded one when both exist (see runtime.py), so this purely adds safety
+        # net coverage without taking away anyone's ability to edit the standard
+        # library externally — it's still copied as a plain file below too.
+        if stdutils_path.exists():
+            cmd += ["--add-data", f"{stdutils_path}{os.pathsep}."]
 
         cmd += [
             "--paths",
@@ -271,18 +464,29 @@ def compile_to_executable(gbn_path: Path) -> Path:
                 print(exc.stderr.decode("utf-8", errors="replace"), file=sys.stderr)
             return _create_wrapper_executable(gbn_path)
 
+        # On Windows, PyInstaller names its --onefile output "<name>.exe" even
+        # though we passed --name without an extension; executable_path.name
+        # already carries that same ".exe" (see top of function), so this stays
+        # correct on every platform without a separate Windows branch here.
         built_exe = dist_dir / executable_path.name
         if not built_exe.exists():
             raise FileNotFoundError("PyInstaller build output not found")
 
         shutil.copy2(built_exe, executable_path)
-        executable_path.chmod(executable_path.stat().st_mode | 0o111)
+        if os.name != "nt":
+            # POSIX execute bit; meaningless on Windows, where runnability comes
+            # from the ".exe" extension instead, so we skip chmod there.
+            executable_path.chmod(executable_path.stat().st_mode | 0o111)
 
-        # stdutils.gbn is deliberately NOT embedded (see get_resource_path()): copy it
-        # next to the compiled executable as a plain, readable, editable text file.
+        # stdutils.gbn already got embedded above as a safety net; we ALSO copy it
+        # next to the compiled executable as a plain, readable, editable text
+        # file, since get_resource_path() always prefers that external copy when
+        # it's present — this keeps the "anyone can read/edit the standard
+        # library" behavior while no longer requiring people to remember to carry
+        # it along whenever they share just the binary.
         if stdutils_path.exists():
             stdutils_dest = executable_path.parent / stdutils_path.name
             shutil.copy2(stdutils_path, stdutils_dest)
-            print(f"Standard library kept as a separate file: {stdutils_dest}", file=sys.stderr)
+            print(f"Standard library embedded, and also kept as an editable file: {stdutils_dest}", file=sys.stderr)
 
         return executable_path
