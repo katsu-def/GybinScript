@@ -56,7 +56,7 @@ var _last_time: float = $float($_seconds())
 
 func _delta() -> float
   var _current_time: float = $float($_seconds())
-  var _del: float = ($_current_time - $_last_time) / 1000.0
+  var _del: float = ($_current_time - $_last_time)
   $_last_time = $_current_time
 
   return $_del
@@ -64,9 +64,9 @@ end
 
 func _fps(_time: float) -> int
   if $_time == 0
-    $_time = 1.0
+    return 0
   end
 
-  return $int($_time / 1)
+  return $int(1.0 / $_time)
 
 end
