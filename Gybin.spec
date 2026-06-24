@@ -3,9 +3,9 @@
 
 a = Analysis(
     ['Core/Gybin.py'],
-    pathex=['.'],
+    pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('Core/stdutils.gbn', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -35,5 +35,4 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['Gybin.ico'],
 )

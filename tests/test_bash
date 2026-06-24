@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-# A file similar to this will be created if pyinstaller is unavailable.
-# ! BASH NOT FOUND IN WINDOWS
-
-exec python3 "/home/katsu/Proyectos/GybinScript/Core/Gybin.py" "/home/katsu/Proyectos/GybinScript/reloj.gbn" "$@"

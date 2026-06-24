@@ -22,11 +22,13 @@ from __future__ import annotations
 # embebido y delega la ejecucion al entrypoint principal.
 # `compile_to_executable` intenta construir un binario onefile con
 # PyInstaller y vuelve al wrapper si algo no se puede completar.
-# `stdutils.gbn` se embebe en el binario como red de seguridad (para quien
-# comparta solo el ejecutable, sin Gybin instalado), y TAMBIEN se copia como
-# archivo de texto plano junto al ejecutable final, para que cualquiera pueda
-# leerla o editarla — get_resource_path() en runtime.py siempre prioriza esa
-# copia externa sobre la embebida cuando ambas existen.
+# `stdutils.gbn` se empaqueta UNICAMENTE dentro del binario (--add-data), para
+# quien comparta solo el ejecutable, sin Gybin instalado. Ya NO se copia como
+# archivo de texto plano junto al ejecutable final: esa copia externa era un
+# vector de inyeccion de codigo, ya que get_resource_path() (runtime.py) la
+# prioriza sobre la embebida y stdutils.gbn se importa automaticamente en cada
+# ejecucion — cualquiera con acceso de escritura a esa carpeta podia
+# reemplazarla y ejecutar codigo arbitrario de forma silenciosa.
 # El motor solo llama a esta capa; no necesita conocer detalles del build.
 
 import os
@@ -440,13 +442,12 @@ def compile_to_executable(gbn_path: Path) -> Path:
         for lib_path in imported_libs:
             cmd += ["--add-data", f"{lib_path}{os.pathsep}."]
 
-        # Embed stdutils.gbn too, as a fallback for whoever ends up with just the
-        # compiled binary and nothing else — not every machine that receives a
-        # shared executable will have Gybin (or even Core/stdutils.gbn) installed.
-        # get_resource_path() already prefers an external, editable copy over this
-        # embedded one when both exist (see runtime.py), so this purely adds safety
-        # net coverage without taking away anyone's ability to edit the standard
-        # library externally — it's still copied as a plain file below too.
+        # Embed stdutils.gbn into the binary — the only copy the compiled
+        # executable will ever use. It is intentionally NOT also copied next to
+        # the executable as an external file (see header comment): doing so
+        # used to let get_resource_path() pick up an external override, which
+        # is a code-injection vector since stdutils.gbn loads automatically on
+        # every run.
         if stdutils_path.exists():
             cmd += ["--add-data", f"{stdutils_path}{os.pathsep}."]
 
@@ -478,15 +479,14 @@ def compile_to_executable(gbn_path: Path) -> Path:
             # from the ".exe" extension instead, so we skip chmod there.
             executable_path.chmod(executable_path.stat().st_mode | 0o111)
 
-        # stdutils.gbn already got embedded above as a safety net; we ALSO copy it
-        # next to the compiled executable as a plain, readable, editable text
-        # file, since get_resource_path() always prefers that external copy when
-        # it's present — this keeps the "anyone can read/edit the standard
-        # library" behavior while no longer requiring people to remember to carry
-        # it along whenever they share just the binary.
+        # stdutils.gbn ya quedo embebido arriba via --add-data. Deliberadamente
+        # NO se copia tambien como archivo externo junto al ejecutable: al
+        # importarse automaticamente en cada ejecucion (load_standard_library()
+        # en Gybin.py), una copia externa editable es, en la practica, un punto
+        # de inyeccion de codigo para cualquiera con acceso de escritura a esa
+        # carpeta. La unica copia "de verdad" del stdlib que el binario usara
+        # es la que viaja dentro de el.
         if stdutils_path.exists():
-            stdutils_dest = executable_path.parent / stdutils_path.name
-            shutil.copy2(stdutils_path, stdutils_dest)
-            print(f"Standard library embedded, and also kept as an editable file: {stdutils_dest}", file=sys.stderr)
+            print("Standard library embedded inside the executable.", file=sys.stderr)
 
         return executable_path

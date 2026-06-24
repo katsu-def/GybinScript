@@ -1,0 +1,1 @@
+pyinstaller --onefile --name Gybin --add-data "Core/stdutils.gbn:." Core/Gybin.py

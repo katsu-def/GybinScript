@@ -43,16 +43,17 @@ SUPPORTED_IMPORT_EXTS: list[str] = [".gbn", ".py", ".h", ".c", ".cpp", ".asm", "
 def get_install_root() -> Path:
     """Base directory used to resolve files that live OUTSIDE the bundle/source tree
     and that the end user controls — currently the starting point for `libs/`
-    discovery (see find_libs_dir()) and the external (visible) copy of
-    `stdutils.gbn` (see get_resource_path()).
+    discovery (see find_libs_dir()). NOT used for `stdutils.gbn`: that resource is
+    never read from this directory (see get_resource_path()), since it loads
+    automatically on every run and trusting an external copy of it would be a
+    code-injection surface for compiled binaries.
 
     - Frozen PyInstaller build: the directory containing the actual executable on
       disk (`sys.executable`). NEVER `sys._MEIPASS`: that's a private temp folder
       re-extracted (and deleted) on every run of a onefile build, so it can never
       hold a `libs/` directory the end user placed next to their copy of the program.
     - Running from source: the parent of this package's directory (the repository
-      root, so `libs/` sits next to `Core/`) — matches get_resource_path()'s
-      non-frozen behavior.
+      root, so `libs/` sits next to `Core/`).
     """
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
@@ -86,17 +87,25 @@ def get_resource_path(relative_path: str) -> Path:
     `stdutils.gbn`).
 
     - Running from source: same folder as this module (Core/), as before.
-    - Frozen build: prefer the copy sitting next to the actual executable on disk
-      (see get_install_root()) over anything embedded in the bundle. This keeps
-      `stdutils.gbn` a plain, visible, editable text file that ships alongside the
-      executable instead of being hidden inside it — anyone can open and read the
-      standard library source. Falls back to the bundled `_MEIPASS` copy only if no
-      external copy is found (e.g. an older build that still embeds it via
-      `--add-data`).
+    - Frozen build: ALWAYS use the copy embedded in the binary at compile time
+      (`sys._MEIPASS`), and never look at any file sitting next to the
+      executable on disk. `stdutils.gbn` loads automatically on every run
+      (see load_standard_library() in Gybin.py) — there is no script-level
+      `@use` the user has to write or approve for it. If an external file in
+      the executable's folder were ever trusted here, anyone with write
+      access to that folder (not necessarily the person running the program)
+      could drop a replacement `stdutils.gbn` there and have arbitrary code
+      run silently, with full trust, on every execution of the compiled
+      program. That is an unacceptable code-injection surface for a compiled
+      artifact meant to run on systems the editor of that folder doesn't
+      control.
+
+      Net effect: once compiled, a binary's standard library is frozen for
+      good. The only supported way to change it is to edit `Core/stdutils.gbn`
+      in the source tree and recompile — exactly like changing any other part
+      of the interpreter's behavior.
     """
     if getattr(sys, "frozen", False):
-        external_path = get_install_root() / relative_path
-        if external_path.exists():
-            return external_path
+        return Path(sys._MEIPASS) / relative_path
         return Path(sys._MEIPASS) / relative_path
     return Path(__file__).resolve().parent / relative_path
