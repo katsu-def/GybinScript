@@ -1,4 +1,6 @@
-# GybinScript — User Manual [![Ask DeepWiki](https://deepwiki.com/badge-maker?url=https%3A%2F%2Fdeepwiki.com%2Fkatsu-def%2FGybinScript)](https://deepwiki.com/badge-maker?url=https%3A%2F%2Fdeepwiki.com%2Fkatsu-def%2FGybinScript)
+# GybinScript — User Manual 
+
+[![Ask DeepWiki](https://deepwiki.com/badge-maker?url=https%3A%2F%2Fdeepwiki.com%2Fkatsu-def%2FGybinScript)](https://deepwiki.com/badge-maker?url=https%3A%2F%2Fdeepwiki.com%2Fkatsu-def%2FGybinScript)
 
 > [Read this manual in Spanish (README-ES.md)](./README-ES.md)
 
