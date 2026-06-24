@@ -1,5 +1,7 @@
 # GybinScript — Manual de Uso
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/katsu-def/GybinScript)
+
 > **Versión:** 1.4.0a  
 > **Extensión de archivos:** `.gbn`  
 > **Intérprete:** `Core/Gybin` \ `/usr/bin/Gybin`
