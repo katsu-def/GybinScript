@@ -563,7 +563,7 @@ end
 
 ### `match` conditional (no fallthrough)
 
-Compares one subject against several possible values. Each case opens with `case value1, value2` (multiple comma-separated labels allowed) and — like `if`/`elseif`/`else` — there is no `:` at the end of the line. Only the first matching case (or `else`, if present) runs; there is no fallthrough between cases.
+Compares one subject against several possible values. Each case opens with `case value1, value2` (multiple comma-separated labels allowed) and — like `if`/`elseif`/`else` — Only the first matching case (or `else`, if present) runs; there is no fallthrough between cases.
 
 ```gbn
 match $day
@@ -675,7 +675,7 @@ Pointers allow indirect access and can point to complex paths (`$$object.field`,
 
 ## 16. Events
 
-An `event` declares a lightweight signal (similar to Godot's signals): a name plus a parameter list, with no body and no `end`:
+An `event` declares a lightweight signal: a name plus a parameter list:
 
 ```gbn
 event player_is_dead(entity: str)

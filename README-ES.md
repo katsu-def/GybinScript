@@ -559,9 +559,9 @@ for n in $range(5)
 end
 ```
 
-### Condicional `match` (sin fallthrough)
+### Condicional `match`
 
-Compara un sujeto contra varios valores posibles. Cada caso se abre con `case valor1, valor2` (se permiten varias etiquetas separadas por coma) y — igual que `if`/`elseif`/`else` — no lleva `:` al final de la línea. Solo se ejecuta el primer caso que coincide (o `else`, si está presente); no hay fallthrough entre casos.
+Compara un sujeto contra varios valores posibles. Cada caso se abre con `case valor1, valor2` (se permiten varias etiquetas separadas por coma). Solo se ejecuta el primer caso que coincide (o `else`, si está presente); no hay fallthrough entre casos.
 
 ```gbn
 match $dia
@@ -673,7 +673,7 @@ Los punteros permiten acceso indirecto y pueden apuntar a rutas complejas (`$$ob
 
 ## 16. Eventos
 
-Un `event` declara una señal ligera: un nombre más una lista de parámetros, sin cuerpo y sin `end`:
+Un `event` declara una señal ligera: un nombre más una lista de parámetros:
 
 ```gbn
 event player_is_dead(entity: str)

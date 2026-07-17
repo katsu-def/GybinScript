@@ -1,4 +1,4 @@
-#!/data/data/com.termux/files/usr/bin/
+#!/data/data/com.termux/files/usr/bin/bash
 
 # ============================================================================
 # setup-termux — instalador de GybinScript para Termux
