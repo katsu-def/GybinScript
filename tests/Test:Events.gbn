@@ -1,0 +1,27 @@
+-- Prueba de comportamiento de eventos
+
+event player_is_dead()
+var die: array[bool][2] = [true, false]
+
+func init() -> NULL
+	if $die[1]
+		return
+	end
+
+	if $die[0]
+		$player_is_dead.emit()
+		$die[1] = true
+	end	
+end
+
+
+func dead() -> NULL
+	$print("Player dead")
+
+end
+
+
+$player_is_dead.connect($$dead)
+
+
+run

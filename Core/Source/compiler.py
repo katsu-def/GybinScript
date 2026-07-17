@@ -20,8 +20,10 @@ from __future__ import annotations
 # congelado, en lugar de rendirse siempre al wrapper.
 # `_write_pyinstaller_stub` genera un script temporal que carga el `.gbn`
 # embebido y delega la ejecucion al entrypoint principal.
-# `compile_to_executable` intenta construir un binario onefile con
-# PyInstaller y vuelve al wrapper si algo no se puede completar.
+# `compile_to_executable` intenta construir un binario onefile con PyInstaller
+# y vuelve al wrapper si algo no se puede completar. Acepta nombre, icono y
+# datos extra (--add-data) personalizados. Las dependencias @use/@from/@as se
+# detectan y empaquetan automaticamente (ver _collect_imported_gbn_libs).
 # `stdutils.gbn` se empaqueta UNICAMENTE dentro del binario (--add-data), para
 # quien comparta solo el ejecutable, sin Gybin instalado. Ya NO se copia como
 # archivo de texto plano junto al ejecutable final: esa copia externa era un
@@ -61,7 +63,7 @@ def _interpreter_invocation() -> list[str]:
     return [python_cmd, str(parser_path)]
 
 
-def _create_wrapper_executable(gbn_path: Path) -> Path:
+def _create_wrapper_executable(gbn_path: Path, name: str | None = None) -> Path:
     """Dispatch to the platform-appropriate wrapper.
 
     Windows has no concept of the POSIX executable bit nor of shebang lines, and
@@ -71,12 +73,12 @@ def _create_wrapper_executable(gbn_path: Path) -> Path:
     wrapper, which is directly executable once chmod'ed.
     """
     if os.name == "nt":
-        return _create_windows_wrapper(gbn_path)
-    return _create_unix_wrapper(gbn_path)
+        return _create_windows_wrapper(gbn_path, name=name)
+    return _create_unix_wrapper(gbn_path, name=name)
 
 
-def _create_unix_wrapper(gbn_path: Path) -> Path:
-    executable_path = gbn_path.with_suffix("")
+def _create_unix_wrapper(gbn_path: Path, name: str | None = None) -> Path:
+    executable_path = gbn_path.with_name(name) if name else gbn_path.with_suffix("")
     bundle_dir = _bundle_dependencies_for_wrapper(gbn_path)
     invocation = " ".join(f'"{part}"' for part in _interpreter_invocation())
     env_line = f'export GYBIN_BUNDLE_DIR="{bundle_dir}"\n' if bundle_dir is not None else ""
@@ -86,11 +88,11 @@ def _create_unix_wrapper(gbn_path: Path) -> Path:
     return executable_path
 
 
-def _create_windows_wrapper(gbn_path: Path) -> Path:
+def _create_windows_wrapper(gbn_path: Path, name: str | None = None) -> Path:
     # Unlike Unix, Windows needs a recognized extension to actually be runnable
     # (double-click or bare `name` in cmd.exe) — a bare, extension-less file is
     # just inert data to it, so `.bat` here is not cosmetic, it's required.
-    executable_path = gbn_path.with_suffix(".bat")
+    executable_path = gbn_path.with_name(f"{name}.bat") if name else gbn_path.with_suffix(".bat")
     bundle_dir = _bundle_dependencies_for_wrapper(gbn_path)
     invocation = " ".join(f'"{part}"' for part in _interpreter_invocation())
     env_line = f'set "GYBIN_BUNDLE_DIR={bundle_dir}"\r\n' if bundle_dir is not None else ""
@@ -369,13 +371,51 @@ def _resolve_pyinstaller_build_inputs(gbn_path: Path) -> tuple[str, Path] | None
     return pyinstaller_exe, package_dir
 
 
-def compile_to_executable(gbn_path: Path) -> Path:
+def _stage_for_add_data(staging_root: Path, source_path: Path) -> Path | None:
+    """Copy `source_path` into a fresh staging folder under `staging_root` so its
+    eventual --add-data SOURCE argument can never inherit a stray ':' from some
+    unrelated parent directory in the file's original location (PyInstaller's
+    --add-data parser treats any ':' outside a Windows drive-letter prefix as a
+    candidate SRC/DEST separator, and fails outright unless there's exactly
+    one — see SourceDestAction in PyInstaller's own makespec.py).
+
+    Returns None (after printing a warning) if the file's own basename
+    contains os.pathsep: that specific case cannot be worked around by
+    staging, since renaming the file would break `@use`/`@from` lookups at
+    runtime (which resolve libraries by their original basename) — the file is
+    skipped rather than aborting the whole build.
+    """
+    if os.pathsep in source_path.name:
+        print(
+            f"Warning: cannot bundle '{source_path.name}' — its name contains "
+            f"'{os.pathsep}', which PyInstaller's --add-data uses as a SOURCE:DEST "
+            f"separator. Skipping this file; rename it without '{os.pathsep}' to bundle it.",
+            file=sys.stderr,
+        )
+        return None
+    staging_root.mkdir(parents=True, exist_ok=True)
+    staged_path = staging_root / source_path.name
+    if source_path.is_dir():
+        shutil.copytree(source_path, staged_path, dirs_exist_ok=True)
+    else:
+        shutil.copy2(source_path, staged_path)
+    return staged_path
+
+
+def compile_to_executable(
+    gbn_path: Path,
+    *,
+    name: str | None = None,
+    add_data: list[str] | None = None,
+    icon: str | None = None,
+) -> Path:
     # PyInstaller's own --onefile output is always "<name>.exe" on Windows and a
     # bare "<name>" everywhere else; `output_stem` is what we hand to PyInstaller
     # via --name (extension-less, since PyInstaller appends ".exe" itself on
     # Windows), while `executable_path` is the final installed path we actually
     # write to — it needs the ".exe" suffix on Windows or it won't be runnable.
-    output_stem = gbn_path.with_suffix("")
+    # `name` overrides the default (the script's own filename without extension).
+    output_stem = gbn_path.with_name(name) if name else gbn_path.with_suffix("")
     executable_path = output_stem.with_suffix(".exe") if os.name == "nt" else output_stem
 
     build_inputs = _resolve_pyinstaller_build_inputs(gbn_path)
@@ -390,7 +430,12 @@ def compile_to_executable(gbn_path: Path) -> Path:
         else:
             wrapper_kind = ".bat" if os.name == "nt" else "bash"
             print(f"Warning: PyInstaller not found. Only a {wrapper_kind} wrapper executable will be created.", file=sys.stderr)
-        return _create_wrapper_executable(gbn_path)
+        if add_data or icon:
+            print(
+                "Note: --ad/--i only apply to a real PyInstaller build and are ignored for this wrapper.",
+                file=sys.stderr,
+            )
+        return _create_wrapper_executable(gbn_path, name=name)
 
     pyinstaller_exe, package_dir = build_inputs
     stdutils_path = get_resource_path("stdutils.gbn")
@@ -412,7 +457,17 @@ def compile_to_executable(gbn_path: Path) -> Path:
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_dir_path = Path(temp_dir)
         spec_root = _prepare_spec_root(temp_dir_path, package_dir)
-        payload_name = gbn_path.name
+        # The entry script is ALWAYS staged under a fixed, safe name — never the
+        # user's original filename. This matters because PyInstaller's own
+        # --add-data parser treats any ':' in the whole "SOURCE:DEST" string
+        # (outside a Windows drive-letter prefix) as a candidate SRC/DEST
+        # separator, and fails outright unless there's exactly one. A ':' is a
+        # perfectly legal filename character on Linux/macOS (e.g. "Test:General.gbn"),
+        # so keeping the original name here would silently break every build for
+        # anyone using that naming style. The runtime stub only needs
+        # PAYLOAD_NAME to match whatever we actually call it, so there is no
+        # downside to always using a safe name here.
+        payload_name = f"__gybin_entry__{gbn_path.suffix}"
         payload_path = temp_dir_path / payload_name
         payload_path.write_text(gbn_path.read_text(encoding="utf-8"), encoding="utf-8")
 
@@ -438,9 +493,15 @@ def compile_to_executable(gbn_path: Path) -> Path:
             f"{payload_path}{os.pathsep}.",
         ]
 
-        # Bundle each imported library (all supported types) into the executable
+        # Bundle each imported library (all supported types) into the executable.
+        # Each is copied into its own colon-free staging spot first (see
+        # _stage_for_add_data) so a ':' anywhere in its original path — not
+        # just in its own basename — can never break the --add-data argument.
+        libs_staging_dir = temp_dir_path / "libs_staging"
         for lib_path in imported_libs:
-            cmd += ["--add-data", f"{lib_path}{os.pathsep}."]
+            staged_lib_path = _stage_for_add_data(libs_staging_dir, lib_path)
+            if staged_lib_path is not None:
+                cmd += ["--add-data", f"{staged_lib_path}{os.pathsep}."]
 
         # Embed stdutils.gbn into the binary — the only copy the compiled
         # executable will ever use. It is intentionally NOT also copied next to
@@ -449,7 +510,44 @@ def compile_to_executable(gbn_path: Path) -> Path:
         # is a code-injection vector since stdutils.gbn loads automatically on
         # every run.
         if stdutils_path.exists():
-            cmd += ["--add-data", f"{stdutils_path}{os.pathsep}."]
+            staged_stdutils_path = _stage_for_add_data(temp_dir_path / "stdutils_staging", stdutils_path)
+            if staged_stdutils_path is not None:
+                cmd += ["--add-data", f"{staged_stdutils_path}{os.pathsep}."]
+
+        # --ad: extra user-provided files/folders to bundle. Accepts either a
+        # bare path (goes to the bundle root, same as everything above) or
+        # "path=dest" to place it under a specific folder inside the bundle.
+        # Also staged first for the same ':'-collision reason as everything
+        # else above; `dest_text` is checked separately since it becomes part
+        # of the same SOURCE:DEST string.
+        add_data_staging_dir = temp_dir_path / "extra_data_staging"
+        for entry in (add_data or []):
+            source_text, _, dest_text = entry.partition("=")
+            dest_text = dest_text or "."
+            if os.pathsep in dest_text:
+                print(
+                    f"Warning: --ad destination '{dest_text}' contains '{os.pathsep}', "
+                    f"which conflicts with --add-data's SOURCE:DEST separator. Skipping: {entry}",
+                    file=sys.stderr,
+                )
+                continue
+            source_path = Path(source_text).expanduser()
+            if not source_path.exists():
+                print(f"Warning: --ad path not found, skipping: {source_path}", file=sys.stderr)
+                continue
+            staged_source_path = _stage_for_add_data(add_data_staging_dir, source_path.resolve())
+            if staged_source_path is not None:
+                cmd += ["--add-data", f"{staged_source_path}{os.pathsep}{dest_text}"]
+
+        # --i: custom icon for the compiled executable (PyInstaller silently
+        # ignores unsupported formats on some platforms, but a missing file
+        # would otherwise fail the whole build, so check it ourselves first).
+        if icon:
+            icon_path = Path(icon).expanduser()
+            if not icon_path.exists():
+                print(f"Warning: --i icon file not found, skipping: {icon_path}", file=sys.stderr)
+            else:
+                cmd += ["--icon", str(icon_path.resolve())]
 
         cmd += [
             "--paths",
@@ -463,7 +561,7 @@ def compile_to_executable(gbn_path: Path) -> Path:
             print("PyInstaller failed, falling back to wrapper executable.", file=sys.stderr)
             if exc.stderr:
                 print(exc.stderr.decode("utf-8", errors="replace"), file=sys.stderr)
-            return _create_wrapper_executable(gbn_path)
+            return _create_wrapper_executable(gbn_path, name=name)
 
         # On Windows, PyInstaller names its --onefile output "<name>.exe" even
         # though we passed --name without an extension; executable_path.name

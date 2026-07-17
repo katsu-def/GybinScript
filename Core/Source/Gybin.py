@@ -40,9 +40,15 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tr", action="store_true",
                         help="Show executed lines (only with trace) and not normal output")
     parser.add_argument("--c", action="store_true",
-                        help="Compile the script into an executable wrapper if there are no errors")
+                        help="Compile the script into an executable if there are no errors. Does NOT run the script; only checks it for errors and reports the compiled executable's path")
     parser.add_argument("--fc", action="store_true",
-                        help="Compile the script even if errors occur")
+                        help="Compile the script even if errors occur. Does NOT run the script at all, not even to check for errors")
+    parser.add_argument("--n", type=str, default=None, metavar="NAME",
+                        help="Custom name for the compiled executable. Only relevant with --c/--fc. Defaults to the script's own filename (without extension)")
+    parser.add_argument("--ad", action="append", default=None, metavar="PATH[=DEST]",
+                        help="Extra file or folder to bundle into the compiled executable. Only relevant with --c/--fc. Can be given multiple times. 'DEST' is the folder inside the bundle (default: '.', the bundle root)")
+    parser.add_argument("--i", type=str, default=None, metavar="ICON_PATH",
+                        help="Path to an icon file (.ico on Windows, .icns on macOS) for the compiled executable. Only relevant with --c/--fc")
     parser.add_argument("--w", action="store_true",
                         help="Enable warning messages")
     parser.add_argument("--nc", action="store_true",
@@ -122,13 +128,60 @@ def emit_memory_summary() -> None:
         print("Total memory:", engine.memory.summary())
 
 
-def maybe_compile_program(path: Path, args: argparse.Namespace, had_error: bool) -> None:
-    if not (args.c or args.fc):
-        return
-    if args.c and had_error and not args.fc:
-        print("Compilation skipped because errors were detected.", file=sys.stderr)
-        return
-    exe_path = engine.compile_to_executable(path)
+def _run_silently_to_check_for_errors(path: Path) -> bool:
+    """Run the script exactly once, with stdout AND stderr fully redirected to
+    the void, purely to find out whether it raises an error — this is the only
+    way `--c` can honor 'no compiles si hay errores' without a separate
+    static-analysis pass, since the interpreter has none: it is a tree-walking
+    interpreter, so 'checking for errors' and 'running the script' are the same
+    operation here. Nothing this run prints, writes, or does is ever shown to
+    the person — from their perspective nothing happened. Memory is cleared
+    immediately after so this validation pass never leaks into whatever runs
+    next (the real compilation, which never touches script memory).
+    """
+    devnull = open(os.devnull, "w")
+    original_stdout, original_stderr = sys.stdout, sys.stderr
+    had_error = False
+    try:
+        sys.stdout = devnull
+        sys.stderr = devnull
+        lines = engine.read_lines(str(path))
+        engine.process_source_lines(lines, engine.memory, path.parent, trace=False, source_path=path)
+    except Exception:
+        had_error = True
+    finally:
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        devnull.close()
+        engine.memory._slots.clear()
+    return had_error
+
+
+def run_compile_only(path: Path, args: argparse.Namespace) -> None:
+    """Entry point for `--c`/`--fc`. Never runs the script visibly: `--fc` skips
+    even the silent error check (it compiles unconditionally, so there is no
+    reason to run the script at all), while plain `--c` still needs to know
+    whether the script errors, so it runs it once via
+    `_run_silently_to_check_for_errors` — silently — before deciding whether to
+    proceed. Either way, the only thing printed to the person is the path of
+    the resulting executable (or an error explaining why compilation was
+    skipped).
+    """
+    if not args.fc:
+        had_error = _run_silently_to_check_for_errors(path)
+        if had_error:
+            print(
+                "Compilation skipped because errors were detected. Use --fc to compile anyway.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    exe_path = engine.compile_to_executable(
+        path,
+        name=args.n,
+        add_data=args.ad,
+        icon=args.i,
+    )
     print(f"Executable generated: {exe_path}")
 
 
@@ -142,7 +195,6 @@ def finish_program(path: Path, args: argparse.Namespace, had_error: bool, start_
     emit_memory_summary()
     engine.emit_post_execution_warnings(engine.memory, source_path=path)
     engine._gc_release_unused(engine.memory)
-    maybe_compile_program(path, args, had_error)
     maybe_print_execution_time(args, start_time)
     engine.memory._slots.clear()
     restore_stdout_for_no_console(args.nc, original_stdout)
@@ -155,6 +207,10 @@ def main() -> None:
 
     path = validate_program_path(args.file)
     load_standard_library()
+
+    if args.c or args.fc:
+        run_compile_only(path, args)
+        return
 
     original_stdout = redirect_stdout_for_no_console(args.nc)
     try:

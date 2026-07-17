@@ -1,0 +1,138 @@
+#!/data/data/com.termux/files/usr/bin/
+
+# ============================================================================
+# setup-termux — instalador de GybinScript para Termux
+#
+# Adaptado de `setup-linux`. La razón de cada cambio es siempre la misma:
+# Termux corre en su propio sandbox de Android, sin root y sin permiso de
+# escritura en las carpetas de un Linux de escritorio normal (/usr, /opt,
+# /usr/share/icons, /usr/share/mime, ~/.local/share). En su lugar, todo se
+# instala dentro del entorno interno de la propia Termux:
+#
+#   - $PREFIX: equivale al "/usr" de un Linux normal, pero dentro del
+#     sandbox de Termux (por defecto /data/data/com.termux/files/usr),
+#     con permiso de escritura total para el propio usuario, sin sudo.
+#   - $HOME: el home real de Termux (por defecto /data/data/com.termux/files/home)
+#	- NO el almacenamiento compartido de Android (~/storage, /sdcard).
+#
+# Por eso aquí no hay chequeo de EUID/sudo, ni SUDO_USER/chown/"su -" para
+# cambiar de usuario: Termux es de un solo usuario, y ese usuario ya es
+# dueño de todo su propio sandbox.
+#
+# El shebang de arriba usa la ruta literal de Termux en vez de
+# "#!/usr/bin/env bash": un shebang no se expande con variables de entorno
+# y Termux tampoco provee /usr/bin/env (ese "/usr" es el de Android, no el de Termux).
+# ============================================================================
+
+set -e
+
+if [ -z "$PREFIX" ] || [ -z "$HOME" ] || [ -z "$TERMUX_VERSION" ]; then
+    echo "Esto no parece un entorno Termux (\$PREFIX/\$HOME/\$TERMUX_VERSION no definidas)." >&2
+    echo "Ejecuta este script desde dentro de Termux. Para Linux normal usa './setup-linux'." >&2
+    exit 1
+fi
+
+# Android monta el almacenamiento compartido con
+# la bandera 'noexec': cualquier binario o script copiado ahí NO se puede
+# ejecutar, aunque se le haga chmod +x. Si corres este instalador desde ahí,
+# avisamos y salimos en vez de instalar algo que después no va a funcionar.
+
+case "$PWD" in
+  "$HOME"/storage/*|/storage/*|/sdcard/*)
+    echo "Error: estás ejecutando esto desde el almacenamiento compartido de Android ($PWD)." >&2
+    echo "Esa carpeta se monta como 'noexec': lo instalado ahí no podría ejecutarse." >&2
+    echo "Copia primero esta carpeta dentro del almacenamiento interno de Termux, por ejemplo:" >&2
+    echo "    cp -r \"$PWD\" \"\$HOME/GybinScript-src\" && cd \"\$HOME/GybinScript-src\"" >&2
+    exit 1
+    ;;
+esac
+
+installdir="$PREFIX/opt/GybinScript"
+bindir="$PREFIX/bin/Gybin"
+icon_theme_dir="$PREFIX/share/icons/hicolor"
+desktop_dir="$PREFIX/share/applications"
+mime_type="application/x-gybin-script"
+mime_icon_name="application-x-gybin-script"
+icon_installed="$installdir/Gybin.ico"
+
+echo "Configurando..."
+
+mkdir -p "$installdir"
+cp -r ./* "$installdir/"
+
+cat << EOF > "$bindir"
+#!$PREFIX/bin/bash
+exec "$installdir/Core/Gybin" "\$@"
+EOF
+
+chmod +x "$bindir"
+
+echo "Instalando ícono..."
+if [ -f "$icon_installed" ]; then
+    mkdir -p "$icon_theme_dir/256x256/apps" "$icon_theme_dir/256x256/mimetypes"
+    cp "$icon_installed" "$icon_theme_dir/256x256/apps/gybinscript.ico"
+    cp "$icon_installed" "$icon_theme_dir/256x256/mimetypes/$mime_icon_name.ico"
+else
+    echo "Aviso: no se encontró Gybin.ico en el paquete; se omite este paso."
+fi
+
+echo "Registrando archivos .gbn..."
+mkdir -p "$PREFIX/share/mime/packages"
+cat << EOF > "$PREFIX/share/mime/packages/gybinscript.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="$mime_type">
+    <comment>Script de Gybin</comment>
+    <glob pattern="*.gbn"/>
+    <icon name="$mime_icon_name"/>
+  </mime-type>
+</mime-info>
+EOF
+
+echo "Creando lanzador .desktop..."
+mkdir -p "$desktop_dir"
+cat << EOF > "$desktop_dir/gybinscript.desktop"
+[Desktop Entry]
+Type=Application
+Name=GybinScript
+Comment=Ejecuta scripts de Gybin (.gbn)
+Exec=$bindir %f
+Icon=$icon_installed
+Terminal=true
+MimeType=$mime_type;
+Categories=Development;Utility;
+EOF
+chmod +x "$desktop_dir/gybinscript.desktop"
+
+# Una instalación estándar de Termux es solo de consola: no hay entorno de
+# escritorio, así que estas herramientas normalmente ni siquiera están 
+# instaladas, y los archivos de arriba simplemente quedan sin
+# usar. Esto solo cobra sentido si corres un escritorio gráfico encima de Termux.
+# Cada paso se protege con "command -v" dentro de un "if" para que "set -e" no 
+# aborte el script si falta alguna herramienta opcional.
+
+echo "Actualizando cachés del sistema..."
+if command -v update-mime-database >/dev/null 2>&1; then
+    update-mime-database "$PREFIX/share/mime" >/dev/null 2>&1 || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t "$icon_theme_dir" >/dev/null 2>&1 || true
+fi
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$desktop_dir" >/dev/null 2>&1 || true
+fi
+if command -v xdg-mime >/dev/null 2>&1; then
+    echo "Estableciendo GybinScript como programa por defecto para archivos .gbn..."
+    xdg-mime default gybinscript.desktop "$mime_type" >/dev/null 2>&1 || true
+else
+    echo "(xdg-utils/shared-mime-info/desktop-file-utils no instalados — normal en una Termux de solo consola."
+    echo " Si usas Termux:X11 u otro escritorio gráfico y quieres esta integración, instala con:"
+    echo "   pkg install xdg-utils shared-mime-info desktop-file-utils)"
+fi
+
+echo ""
+echo "¡Listo! GybinScript está instalado dentro del entorno de Termux:"
+echo "  - Binario:  $bindir"
+echo "  - Archivos: $installdir"
+echo ""
+echo "Abre una nueva sesión de Termux (o corre 'hash -r') y ejecuta: Gybin tu_script.gbn"

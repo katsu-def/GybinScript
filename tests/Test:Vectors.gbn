@@ -1,0 +1,11 @@
+-- stdutils vectors test
+
+var Test2: vec2 = $vec2(18.0, 4.5) -- floats x, y
+var Test2i: vec2i = $vec2i(23, 8) -- ints x, y
+
+var Test3: vec3 = $vec3(24.5, 17.8, 114.0) -- floats x, y, z
+var Test3i: vec3i = $vec3i(12, 87, 9) -- ints x, y, z
+
+var TestColor: color = $color(0.6, 0.1, 0.8, 1.0) -- floats r, g, b, a 
+
+$print($Test2, $Test2i, $Test3, $Test3i, $TestColor)

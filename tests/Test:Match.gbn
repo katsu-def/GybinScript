@@ -1,0 +1,21 @@
+-- Prueba de comportamiento de match y case
+
+enum state = {NORMAL, TIRED, DAMAGE, DIE, NULL}
+var current_state: state = 3
+
+match $current_state
+	case 0 -- Los enums internamente se interpretan como números
+		$print("test 0")
+
+	case 1
+		$print("test 1")
+
+	case 2
+		$print("test 2")
+
+	case 3
+		$print("test 3")
+		
+	else
+		$print("Error")
+end

@@ -8,7 +8,7 @@ class Item
     end
 end
 
-!* NOTA IMPORTANTE: El interprete ignora objetos con "NULL" hasta que cambias su valor, en una variable
+!* NOTA IMPORTANTE: El interprete ignora objetos con NULL hasta que cambias su valor, en una variable
 tipo dict es mejor iniciarla con {} si aún no tiene nada para el momento de declararla, o dará error
 de no declaración si intentas añadir un objeto. !*
 

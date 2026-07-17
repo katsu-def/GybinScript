@@ -16,7 +16,7 @@ from typing import Any
 
 keys: list[str] = ["func", "class", "var",
                    "const", "enum", "$", "if", "elseif",
-                   "else", "while", "for", "in",
+                   "else", "while", "for", "in", "match", "case", "event",
                    "is", "or", "not", "and", "NULL",
                    "return", "end", "continue", "break", "loop", "try", "catch", "except",
                    "await", "pass", "@use", "@from", "@as", "run", "--", "!*", "#onready",

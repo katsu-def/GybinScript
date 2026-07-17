@@ -2,7 +2,7 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/katsu-def/GybinScript)
 
-> **Versión:** 1.4.0a  
+> **Versión:** 1.5  
 > **Extensión de archivos:** `.gbn`  
 > **Intérprete:** `Core/Gybin` \ `/usr/bin/Gybin`
 > **Ejecución:** `Gybin (Dirección de archivo: Mi_script.gbn)`
@@ -21,6 +21,7 @@ chmod +x Mi_script.gbn
 ```
 
 > Ejecute setup-linux para configurar el lanzador de Gybin en '/usr/bin'
+> Ejecute setup-termux para configurar el lenguaje en un entorno  termux
 
 ---
 
@@ -41,13 +42,14 @@ chmod +x Mi_script.gbn
 13. [Estructuras de control](#13-estructuras-de-control)
 14. [Manejo de errores](#14-manejo-de-errores)
 15. [Punteros](#15-punteros)
-16. [Módulos e importaciones](#16-módulos-e-importaciones)
-17. [Gestión de memoria](#17-gestión-de-memoria)
-18. [Funciones nativas (built-ins)](#18-funciones-nativas-built-ins)
-19. [Biblioteca estándar (stdutils)](#19-biblioteca-estándar-stdutils)
-20. [Compilación a ejecutable](#20-compilación-a-ejecutable)
-21. [Advertencias y análisis estático](#21-advertencias-y-análisis-estático)
-22. [Reglas y buenas prácticas](#22-reglas-y-buenas-prácticas)
+16. [Eventos](#16-eventos)
+17. [Módulos e importaciones](#17-módulos-e-importaciones)
+18. [Gestión de memoria](#18-gestión-de-memoria)
+19. [Funciones nativas (built-ins)](#19-funciones-nativas-built-ins)
+20. [Biblioteca estándar (stdutils)](#20-biblioteca-estándar-stdutils)
+21. [Compilación a ejecutable](#21-compilación-a-ejecutable)
+22. [Advertencias y análisis estático](#22-advertencias-y-análisis-estático)
+23. [Reglas y buenas prácticas](#23-reglas-y-buenas-prácticas)
 
 ---
 
@@ -71,8 +73,11 @@ Gybin mi_script.gbn [opciones]
 | `--pr` | Imprime automáticamente todos los valores devueltos por `return` |
 | `--t` | Muestra el tiempo de ejecución |
 | `--tr` | Muestra cada línea ejecutada en lugar de la salida normal |
-| `--c` | Compila el script a un ejecutable si no hay errores |
-| `--fc` | Compila el script aunque haya errores |
+| `--c` | Compila el script a un ejecutable — ver [§21](#21-compilación-a-ejecutable). **No** ejecuta el script |
+| `--fc` | Compila el script incondicionalmente, aunque tenga errores — ver [§21](#21-compilación-a-ejecutable) |
+| `--n NOMBRE` | Nombre personalizado para el ejecutable compilado (solo con `--c`/`--fc`) |
+| `--ad RUTA[=DESTINO]` | Empaqueta un archivo/carpeta extra en el ejecutable; se puede repetir (solo con `--c`/`--fc`) |
+| `--i RUTA_ICONO` | Ícono para el ejecutable compilado (solo con `--c`/`--fc`) |
 | `--w` | Activa los mensajes de advertencia (análisis estático) |
 | `--nc` | Suprime toda salida estándar (los errores siguen mostrándose) |
 
@@ -98,6 +103,7 @@ GybinScript tiene seis tipos primitivos y dos tipos de colección:
 | `NULL` | Valor nulo / ausencia de valor | `NULL` |
 | `array[T,...]` | Lista tipada de elementos | `[1, 2, 3]` |
 | `dict[V,...]` | Diccionario tipado de valores | `{"a": 1}` |
+| `ptr` | Puntero/referencia a otra variable, constante, función o clase (ver [§15](#15-punteros)) | `$$hp` |
 
 **Coerciones automáticas:**
 - Un `int` asignado a un `float` se convierte automáticamente a `float`.
@@ -553,6 +559,23 @@ for n in $range(5)
 end
 ```
 
+### Condicional `match` (sin fallthrough)
+
+Compara un sujeto contra varios valores posibles. Cada caso se abre con `case valor1, valor2` (se permiten varias etiquetas separadas por coma) y — igual que `if`/`elseif`/`else` — no lleva `:` al final de la línea. Solo se ejecuta el primer caso que coincide (o `else`, si está presente); no hay fallthrough entre casos.
+
+```gbn
+match $dia
+    case 1
+        $print("Lunes")
+    case 2, 3
+        $print("Martes o miércoles")
+    else
+        $print("Otro día")
+end
+```
+
+Las etiquetas de caso pueden ser cualquier expresión evaluable: literales, variables, miembros de enum (`Color.RED`), incluso literales de array/dict (`[1, 2, 3]`, `{"a": 1}`). Si nada coincide y no hay `else`, no pasa nada — no se lanza error.
+
 ### Palabras clave de control de bucles
 
 | Keyword | Comportamiento |
@@ -596,20 +619,96 @@ end
 
 ## 15. Punteros
 
-El operador `$$` crea un puntero a una variable existente. Al leer el puntero, se obtiene el valor actual de la variable apuntada:
+El operador `$$` crea un puntero a una variable, constante, función o clase existente (ej. `$$hp`, `$$Damage`, `$$self.hp`, `$$arr[0]`). Se tipa con `ptr` — la única anotación que puede contener un valor puntero:
 
 ```gbn
 var hp: int = 100
-var ref: any = $$hp
-
-$print($ref)  -- Muestra el valor de hp a través del puntero
+var ref: ptr = $$hp
 ```
 
-Los punteros permiten acceso indirecto y pueden apuntar a rutas complejas (`$$objeto.campo`, `$$array[0]`). Son útiles para alias y referencias dinámicas.
+> ! Leer una variable puntero directamente (`$print(ref)`) imprime el puntero mismo, no el valor al que refiere — usa `.value` o `.get()` para leer a través de él.
+
+### Métodos y propiedades del puntero
+
+Un puntero nunca lleva una copia de lo que apunta — resuelve el objetivo de nuevo cada vez que se usa alguno de estos:
+
+| Miembro | Descripción |
+|---------|-------------|
+| `.value` | Obtiene el valor actual de la variable/constante referenciada. También se puede asignar (`$ref.value = 75`) para escribir a través del puntero |
+| `.get()` | Igual que `.value`, como llamada a método |
+| `.set(valor)` | Igual que asignar `.value`, como llamada a método |
+| `.call(args...)` | Invoca la función/clase referenciada, reenviando los argumentos dados |
+| `.name` | El nombre del espacio de memoria referenciado |
+| `.is_callable` | `true` si el puntero refiere a una función o clase, `false` para una variable/constante |
+| `.is_mutable` | `true` solo para una variable no-`#reserved` y no-constante |
+| `.size` | Tamaño aproximado en bytes del valor referenciado |
+| `.ref` | La dirección de memoria real (identidad) del valor referenciado |
+
+```gbn
+var hp: int = 100
+var ref: ptr = $$hp
+
+$print(ref.value)   -- 100
+$ref.value = 75
+$print(hp)           -- 75
+
+func saludar(nombre: str) -> NULL
+    $print("Hola " + nombre)
+end
+
+var fp: ptr = $$saludar
+$fp.call("Carlos")   -- Hola Carlos
+```
+
+### Reglas
+
+- Solo las variables pueden cambiarse a través de un puntero. Las constantes siempre son inmutables, y las funciones/clases no pueden recibir un valor asignado - `.set()`/`.value = ...` lanza un error en cualquiera de los dos casos.
+- Una variable declarada con `#reserved` nunca puede mutarse a través de un puntero, ni siquiera por código que tenga una referencia a ella.
+- Escribir a través de un puntero (`.set()`/`.value = ...`) acepta cualquier tipo de valor; una discrepancia contra el tipo declarado del objetivo produce una advertencia (con `--w`) en lugar de un error de tipo estricto.
+- Referenciar una función o clase por su nombre a secas (sin `$$`) es un error de script — `$$nombre` es la única forma de obtener una referencia a una sin invocarla.
+
+Los punteros permiten acceso indirecto y pueden apuntar a rutas complejas (`$$objeto.campo`, `$$array[0]`). Son útiles para alias, referencias dinámicas, y para pasar referencias a funciones (por ejemplo, al conectar handlers a un [evento](#16-eventos)).
 
 ---
 
-## 16. Módulos e importaciones
+## 16. Eventos
+
+Un `event` declara una señal ligera: un nombre más una lista de parámetros, sin cuerpo y sin `end`:
+
+```gbn
+event player_is_dead(entity: str)
+```
+
+Las anotaciones de tipo en los parámetros son solo documentación - un evento no tiene cuerpo propio contra el cual validarlas.
+
+### `.connect(handler)` y `.emit(...)`
+
+Todo evento expone dos métodos, ambos se llaman con el prefijo `$` como cualquier otra llamada:
+
+| Método | Descripción |
+|--------|-------------|
+| `.connect(handler)` | Registra una función para que se ejecute cada vez que el evento se dispare. `handler` debe ser una referencia a función creada con `$$nombre_funcion` - pasar el nombre de la función a secas produce un error |
+| `.emit(args...)` | Llama a cada handler conectado, en el orden en que se conectaron, reenviando los argumentos dados. La cantidad de argumentos debe coincidir con la cantidad de parámetros que declara el evento |
+
+```gbn
+event player_is_dead(entity: str)
+
+func on_player_dead(entity: str) -> NULL
+    $print(entity + " murió")
+end
+
+$player_is_dead.connect($$on_player_dead)
+
+if $vida <= 0
+    $player_is_dead.emit("Zombie")
+end
+```
+
+Se pueden conectar varios handlers al mismo evento; todos se ejecutan, en el orden en que fueron conectados, al hacer `.emit(...)`.
+
+---
+
+## 17. Módulos e importaciones
 
 ### `@use` — importar un módulo
 
@@ -645,7 +744,7 @@ Si el path no contiene `/` y no empieza con `.`, el intérprete también busca e
 
 ---
 
-## 17. Gestión de memoria
+## 18. Gestión de memoria
 
 El intérprete tiene un límite configurable de **1024 slots** de memoria por defecto.
 
@@ -701,7 +800,7 @@ Total memory: hp:int=100 | name:str='Juan' | ...
 
 ---
 
-## 18. Funciones nativas (built-ins)
+## 19. Funciones nativas (built-ins)
 
 Estas funciones están disponibles sin necesidad de importar nada:
 
@@ -722,7 +821,7 @@ Estas funciones están disponibles sin necesidad de importar nada:
 
 ---
 
-## 19. Biblioteca estándar (stdutils)
+## 20. Biblioteca estándar (stdutils)
 
 `stdutils.gbn` se carga automáticamente al inicio de cada programa. Proporciona:
 
@@ -752,6 +851,27 @@ $print($GBN.VERSION)
 | `$starts_with(texto, prefijo)` | `true` si el texto empieza con el prefijo |
 | `$ends_with(texto, sufijo)` | `true` si el texto termina con el sufijo |
 
+### Clases vectoriales
+
+| Función | Descripción |
+|---------|-------------|
+| `$vec2(x, y)` | Vector de 2 valores flotantes |
+| `$vec2i(x, y)` | Vector de 2 valores enteros |
+| `$vec3(x, y, z)` | Vector de 3 valores flotantes |
+| `$vec3i(x, y, z)` | Vector de 3 valores enteros |
+| `$color(r, g, b, a)` | Vector de 4 valores flotantes, con valor minimo de 0 y máximo de 1, siendo `a` 1 por defecto si no se asigna ningún valor |
+
+> Puedes acceder en cualquier momento a los valores de los vectores `.x, .y, .z` o `.r, .g, .b, .a`
+
+### Delimitación de cantidades
+
+El primer argumento de `$max()` o `$min()` son los valores a limitar, el segundo es la limitante. Si el valor a limitar sobrepasa la limitante se devuelve automáticamente el valor de la limitante
+
+```gbn
+var valor_min: int = $min(25, 12) -- El valor mínimo posible es 12
+var valor_max: int = $max(72, 100) -- El valor máximo posible es 100
+```
+
 ### Entrada del usuario
 
 ```gbn
@@ -761,33 +881,54 @@ var nombre: str[64] = $input("¿Cómo te llamas? ")
 ### Pausa por entrada
 
 ```gbn
-$pause() -- El código se detiene acquí
+$pause() -- El código se detiene aquí
 ```
 
 ---
 
-## 20. Compilación a ejecutable
+## 21. Compilación a ejecutable
 
-Con la flag `--c`, el intérprete intenta generar un ejecutable standalone usando PyInstaller:
+`--c`/`--fc` generan un ejecutable standalone con PyInstaller. **Ninguna de las dos flags ejecuta tu script para que lo veas** — lo único que se imprime es la ruta del ejecutable resultante, o un mensaje explicando por qué se saltó la compilación.
 
 ```bash
 Gybin mi_script.gbn --c
 ```
 
-Si PyInstaller no está disponible, se genera un wrapper bash (.bat en caso de Windows) que invoca el intérprete directamente:
+El intérprete no tiene un modo separado de "solo revisar sintaxis" - es un intérprete que recorre el árbol de sintaxis directamente, así que "revisar errores" y "ejecutar el script" son técnicamente la misma operación. `--c` igual necesita saber si el script falla, así que lo corre una vez internamente con toda la salida (stdout/stderr) completamente silenciada — nada de lo que imprime o hace se muestra jamás, y sus efectos no se filtran a nada que se imprima después. `--fc` se salta hasta eso: nunca toca el script en absoluto, y compila incondicionalmente.
+
+| Flag | ¿Ejecuta el script? | ¿Compila si hay error? |
+|------|----------------------|--------------------------|
+| `--c` | Completamente silenciado (solo para revisar errores) | No - imprime `Compilation skipped...` y sale |
+| `--fc` | Nunca | Sí, siempre |
+
+### `--n`, `--ad`, `--i`
+
+```bash
+Gybin juego.gbn --c --n MiJuego --ad assets/config.json --i icono.ico
+```
+
+- `--n NOMBRE` — nombre personalizado para el ejecutable compilado (por defecto: el nombre del propio script, sin extensión).
+- `--ad RUTA[=DESTINO]` — empaqueta un archivo o carpeta extra en el ejecutable. Se puede repetir. `DESTINO` es la carpeta de destino dentro del empaquetado (por defecto: `.`).
+- `--i RUTA_ICONO` — ícono para el ejecutable (`.ico` en Windows, `.icns` en macOS).
+
+### Empaquetado automático de imports
+
+Todo archivo traído con `@use` o `@from ... @as` - a cualquier profundidad (incluyendo imports transitivos), y de cualquier extensión soportada - se detecta automáticamente y se embebe en el ejecutable. El programa compilado queda completamente autocontenido: no necesita los archivos `.gbn` originales para correr.
+
+`stdutils.gbn` también se embebe dentro del ejecutable y nunca se copia junto a él como archivo externo - esto es intencional: como se carga automáticamente en cada ejecución, una copia externa editable sería un riesgo de inyección de código para un binario compilado.
+
+Si PyInstaller no está disponible, se genera un wrapper bash (`.bat` en Windows) que invoca al intérprete directamente:
 
 ```bash
 #!/usr/bin/env bash
 exec Gybin "mi_script.gbn" "$@"
 ```
 
-Se creará una copia de `stdutils` en el mismo directorio donde se compila el archivo; las demás dependencias se compilarán normalmente si PyInstaller está disponible.
-
-Con `--fc`, la compilación se fuerza incluso si el script tiene errores de ejecución.
+> ! Un script cuyo propio nombre de archivo contenga `:` compila bien como punto de entrada. Pero un archivo que ese script *importe* y cuyo nombre contenga `:` no se puede empaquetar - `--add-data` de PyInstaller usa `:` como separador SOURCE/DEST — recibirás una advertencia clara al compilar si esto pasa, y solo ese archivo se salta en vez de fallar toda la compilación.
 
 ---
 
-## 21. Advertencias y análisis estático
+## 22. Advertencias y análisis estático
 
 Al ejecutar con `--w`, el motor activa un análisis post-ejecución que reporta:
 
@@ -813,7 +954,7 @@ Warning: archivo.gbn:42: Variable 'x' is declared but never read
 
 ---
 
-## 22. Reglas y buenas prácticas
+## 23. Reglas y buenas prácticas
 
 ### El operador `$`
 
@@ -864,6 +1005,10 @@ $items.append($Item("Sword"))  -- error
 
 ### Cierre de bloques con `end`
 
-Todo bloque (`func`, `class`, `if`, `while`, `for`, `try`) debe cerrarse con `end`. Un bloque sin cerrar produce un `SyntaxError`.
+Todo bloque (`func`, `class`, `if`, `while`, `for`, `try`, `match`) debe cerrarse con `end`. Un bloque sin cerrar produce un `SyntaxError`.
 
 > ! Si bien se puede escribir fuera de funciones, se recomienda que la mayor parte del script se organice en funciones.
+
+### Sangría
+
+> ! La sangría en el lenguaje no es necesaria; se recomienda usar de todas formas para legibilidad y organización, sin embargo quitarla puede repercutir positivamente al rendimiento en proyectos grandes.

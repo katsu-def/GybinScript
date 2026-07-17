@@ -5,6 +5,9 @@ from __future__ import annotations
 # Las funciones no ejecutan programas ni modifican memoria; solo convierten
 # texto gbn en piezas que el motor puede interpretar.
 # `parse_annotation` entiende tipos, limites y elementos de arrays/dicts.
+# Tambien reconoce "ptr" como pseudo-tipo primitivo: solo puede contener un
+# Pointer (creado con $$objetivo); su validacion real ocurre en el motor,
+# ya que la clase Pointer vive en engine.py y no en TYPE_MAP.
 # Los tipos primitivos se normalizan a minusculas; cualquier identificador
 # desconocido (posible nombre de clase o enum) conserva su mayus/minus
 # original, ya que su existencia real se valida despues en el motor
@@ -47,11 +50,19 @@ def parse_annotation(annotation: str) -> tuple[str, int | None, str | None]:
     if annotation_text == "":
         return "", None, None
 
+    # `ptr` is a pseudo-primitive: it never holds a real value directly, only a
+    # Pointer (reference) created via `$$target`. It behaves like a primitive type
+    # annotation (no array/dict-style brackets), but isn't in TYPE_MAP since Pointer
+    # is defined in Core.engine and TYPE_MAP lives here in Core.runtime — the engine
+    # validates it at runtime via isinstance(value, Pointer) instead.
+    if lowered == "ptr":
+        return "ptr", None, None
+
     if "," in annotation_text and not (lowered.startswith("array[") or lowered.startswith("dict[")):
         types_list = [t.strip() for t in annotation_text.split(",")]
         normalized_list = [t.lower() for t in types_list]
         for t in normalized_list:
-            if t not in TYPE_MAP:
+            if t not in TYPE_MAP and t != "ptr":
                 raise TypeError(f"Unsupported type in multi-type annotation: {t}")
         return ",".join(normalized_list), None, None
 
@@ -125,7 +136,7 @@ def parse_annotation_legacy(annotation: str) -> str:
     if annotation_text == "":
         return ""
     base_type, _, _ = parse_annotation(annotation)
-    if base_type not in TYPE_MAP:
+    if base_type not in TYPE_MAP and base_type != "ptr":
         raise TypeError(f"Invalid type annotation: {annotation}")
     return base_type
 
@@ -252,6 +263,24 @@ def parse_function_header(line: str) -> tuple[str, list[str], str]:
     return name, params, return_type
 
 
+def parse_event_header(line: str) -> tuple[str, list[str]]:
+    """Parsea `event nombre(params)`. Es como un header de `func` pero nunca lleva
+    `-> tipo` (los eventos no retornan valor) ni cuerpo/`end`: es una declaracion de
+    una sola linea, igual que `enum`."""
+    header = line.strip()[len("event"):].strip()
+    if "(" not in header or not header.endswith(")"):
+        raise SyntaxError("Invalid event header: missing parentheses")
+
+    name, args_text = header.split("(", 1)
+    name = name.strip()
+    args_text = args_text[:-1].strip()  # remove trailing )
+    params = [arg.strip() for arg in args_text.split(",") if arg.strip()] if args_text else []
+    if not name:
+        raise SyntaxError("Invalid event header: missing event name")
+
+    return name, params
+
+
 def parse_class_header(line: str) -> tuple[str, str | None]:
     header = line.strip()[len("class"):].strip()
     if not header:
@@ -277,13 +306,20 @@ def remove_comments(lines: list[str]) -> list[str]:
         while i < len(line):
             char = line[i]
             if in_string is not None:
-                result.append(char)
+                # Defensive: with the guard below, we can never actually be
+                # inside a tracked string while also inside a block comment
+                # (starting a string requires `not in_block_comment`, and a
+                # block-comment toggle can only be seen when `in_string` is
+                # None) — but keep the check anyway rather than rely on that
+                # invariant holding forever.
+                if not in_block_comment:
+                    result.append(char)
                 if char == in_string and (i == 0 or line[i - 1] != "\\"):
                     in_string = None
                 i += 1
                 continue
 
-            if char in ('"', "'"):
+            if not in_block_comment and char in ('"', "'"):
                 in_string = char
                 result.append(char)
                 i += 1

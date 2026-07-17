@@ -10,6 +10,20 @@ from __future__ import annotations
 # Las utilidades puras de sintaxis vienen de `source_tools.py`.
 # `Parser.py` es el entrypoint de consola y llama a este motor.
 # La compilacion a ejecutable queda aislada en `compiler.py`.
+#
+# Sistema de punteros (`$$target` -> clase `Pointer`, ver mas abajo):
+# `$$target` es la UNICA forma de obtener una referencia a una variable,
+# constante, funcion o clase sin ejecutarla/copiar su contenido; referenciar
+# una funcion/clase por su nombre solo (sin `$$`, sin parentesis de llamada)
+# ahora es un error (ver evaluate_expression). Un Pointer expone `.call`,
+# `.value`, `.name`, `.is_callable`, `.is_mutable`, `.size` y `.ref` en vez
+# de filtrar el objeto interno (FunctionDefinition/ClassDefinition) o su
+# contenido de bloque. Asignar con `$nombre = valor` sobre un slot que ya
+# contiene un Pointer desreferencia (muta el objetivo); `$$nombre = valor`
+# sigue re-asignando el slot en si (para re-apuntar el puntero). La
+# anotacion de tipo "ptr" (ver runtime/source_tools) exige que el valor sea
+# un Pointer. Los objetivos marcados `#reserved` nunca pueden mutarse via
+# puntero, sin importar quien llame.
 
 import ast
 import re
@@ -40,6 +54,7 @@ from Core.source_tools import (
     parse_annotation_legacy,
     parse_class_header,
     parse_constant_declaration,
+    parse_event_header,
     parse_for_header,
     parse_function_header,
     parse_variable_declaration,
@@ -213,7 +228,7 @@ class MemoryManager:
                         line=defined_line,
                     )
 
-    def assign(self, name: str, value: Value, type_name: str | None = None) -> None:
+    def assign(self, name: str, value: Value, type_name: str | None = None, bypass_type_check: bool = False) -> None:
         if name in self._slots:
             slot = self._slots[name]
             if slot.immutable:
@@ -245,26 +260,65 @@ class MemoryManager:
                     line=slot.defined_line,
                 )
 
-            # Intentar coerción automática entre int y float para asignaciones
-            if "," not in normalized_type:
-                if normalized_type == "int" and isinstance(value, float):
-                    if value.is_integer():
-                        value = int(value)
-                    else:
-                        raise TypeError(f"Cannot assign float with fractional part to {name}: {slot.type_name}")
-                if normalized_type == "float" and isinstance(value, int):
-                    value = float(value)
-            if not self._type_matches(normalized_type, value):
-                raise TypeError(
-                    f"Cannot assign {type(value).__name__} a {name}: {slot.type_name}"
-                )
+            # `bypass_type_check` is set exclusively by Pointer.set()/`.value` assignment: an
+            # indirect write through a captured reference is allowed to carry ANY value type,
+            # unlike a normal `$name = value` assignment (which keeps enforcing the declared
+            # type strictly, below). Instead of silently swallowing the mismatch, it's reported
+            # as a warning so the mismatch is still visible when running with --w.
+            if bypass_type_check:
+                if "," not in normalized_type:
+                    if normalized_type == "int" and isinstance(value, float) and not value.is_integer():
+                        print_warning(
+                            f"Assigned float with fractional part to '{name}' (declared '{slot.type_name}') "
+                            f"through a pointer; a direct assignment would raise TypeError",
+                            line=slot.defined_line,
+                        )
+                    elif normalized_type == "float" and isinstance(value, int):
+                        value = float(value)
+                if not self._type_matches(normalized_type, value):
+                    print_warning(
+                        f"Assigned {type(value).__name__} to '{name}' (declared '{slot.type_name}') through a "
+                        f"pointer; a direct assignment would raise TypeError",
+                        line=slot.defined_line,
+                    )
+                if slot.max_size is not None:
+                    try:
+                        self._validate_size(normalized_type, value, slot.max_size)
+                    except ValueError as exc:
+                        print_warning(
+                            f"{exc} (allowed through a pointer; a direct assignment would raise ValueError)",
+                            line=slot.defined_line,
+                        )
+                if slot.element_type is not None:
+                    self._validate_element_type_spec(slot.element_type)
+                    try:
+                        self._validate_element_types(normalized_type, value, slot.element_type)
+                    except TypeError as exc:
+                        print_warning(
+                            f"{exc} (allowed through a pointer; a direct assignment would raise TypeError)",
+                            line=slot.defined_line,
+                        )
+            else:
+                # Intentar coerción automática entre int y float para asignaciones
+                if "," not in normalized_type:
+                    if normalized_type == "int" and isinstance(value, float):
+                        if value.is_integer():
+                            value = int(value)
+                        else:
+                            raise TypeError(f"Cannot assign float with fractional part to {name}: {slot.type_name}")
+                    if normalized_type == "float" and isinstance(value, int):
+                        value = float(value)
+                if not self._type_matches(normalized_type, value):
+                    raise TypeError(
+                        f"Cannot assign {type(value).__name__} a {name}: {slot.type_name}"
+                    )
 
-            if slot.max_size is not None:
-                self._validate_size(normalized_type, value, slot.max_size)
+                if slot.max_size is not None:
+                    self._validate_size(normalized_type, value, slot.max_size)
 
-            if slot.element_type is not None:
-                self._validate_element_type_spec(slot.element_type)
-                self._validate_element_types(normalized_type, value, slot.element_type)
+                if slot.element_type is not None:
+                    self._validate_element_type_spec(slot.element_type)
+                    self._validate_element_types(normalized_type, value, slot.element_type)
 
             # Optimización: No reasignar si el valor es idéntico
             if slot.previous_value != value:
@@ -273,6 +327,7 @@ class MemoryManager:
                 slot.assign_count += 1
 
             return
+
 
         if self.parent is not None and self.parent.has(name):
             self.parent.assign(name, value, type_name)
@@ -315,11 +370,16 @@ class MemoryManager:
         # Allow empty/unspecified type (treat as 'any' until a value or explicit type is set)
         if normalized_type == "":
             return "any"
-        # Support multi-type: "int,str,float"
+        # "ptr": pseudo-primitive that only accepts Pointer instances (see Pointer class).
+        # Not in TYPE_MAP (Pointer lives in this module, TYPE_MAP in runtime.py), so it's
+        # special-cased here exactly like "any" is.
+        if normalized_type == "ptr":
+            return normalized_type
+        # Support multi-type: "int,str,float" (also accepts "ptr" as one of the options)
         if "," in normalized_type:
             types_list = [t.strip() for t in normalized_type.split(",")]
             for t in types_list:
-                if t not in TYPE_MAP:
+                if t not in TYPE_MAP and t != "ptr":
                     raise TypeError(f"Unsupported type in multi-type: {t}")
             return normalized_type
         if normalized_type in TYPE_MAP:
@@ -376,7 +436,7 @@ class MemoryManager:
         if element_type == "any":
             return
         for spec in (t.strip() for t in element_type.split(",")):
-            if spec == "any" or spec in TYPE_MAP:
+            if spec == "any" or spec == "ptr" or spec in TYPE_MAP:
                 continue
             if self._lookup_class_definition(spec) is None and self._lookup_enum_definition(spec) is None:
                 raise TypeError(f"Unknown type '{spec}' used in array/dict element-type annotation")
@@ -386,6 +446,8 @@ class MemoryManager:
         declared enum name — and check whether `item` satisfies it."""
         if spec == "any":
             return True
+        if spec == "ptr":
+            return isinstance(item, Pointer)
         if spec in TYPE_MAP:
             return isinstance(item, TYPE_MAP[spec])
         if self._lookup_enum_definition(spec) is not None:
@@ -417,7 +479,10 @@ class MemoryManager:
             for t in types_list:
                 if t == "any":
                     return True
-                if t in TYPE_MAP:
+                if t == "ptr":
+                    if isinstance(value, Pointer):
+                        return True
+                elif t in TYPE_MAP:
                     if isinstance(value, TYPE_MAP[t]):
                         return True
                 elif self._lookup_enum_definition(t) is not None:
@@ -426,6 +491,8 @@ class MemoryManager:
                 elif self._instance_matches_class(value, t):
                     return True
             return False
+        if type_name == "ptr":
+            return isinstance(value, Pointer)
         if type_name in TYPE_MAP:
             return isinstance(value, TYPE_MAP[type_name])
         if self._lookup_enum_definition(type_name) is not None:
@@ -577,6 +644,14 @@ TRACE: bool = False
 WARNINGS: bool = False
 LOADED_MODULES: set[str] = set()
 EXPRESSION_AST_CACHE: dict[str, ast.expr] = {}
+# Separate cache keyed by the RAW (pre-transform) expression string, so a loop
+# body evaluating the same source text thousands of times (e.g. `total + i`)
+# pays for `replace_pointer_syntax` + the `$`-stripping regex exactly once
+# instead of on every single iteration. Safe to cache indefinitely: both
+# transforms are pure functions of the string with no side effects, and
+# strings are compared by value, so there is no identity/GC pitfall here
+# (unlike caching by id() would be for mutable objects).
+_RAW_EXPRESSION_AST_CACHE: dict[str, ast.expr] = {}
 _CURRENT_LINE: int | None = None  # Updated by process_source_lines for warning attribution
 
 # Tracking for warnings
@@ -798,9 +873,17 @@ class FunctionDefinition:
                 # Explicit `return` with no value (or `return NULL`) is allowed even when a
                 # type is declared, mirroring how other None-valued assignments are treated.
             else:
-                if self.return_type in TYPE_MAP or "," in self.return_type:
+                if self.return_type == "ptr":
+                    if not isinstance(ret_val, Pointer):
+                        raise TypeError(
+                            f"Function '{self.name}': return type declared as 'ptr', "
+                            f"but got {type(ret_val).__name__} (use $$target to return a reference)"
+                        )
+                elif self.return_type in TYPE_MAP or "," in self.return_type:
                     expected_types = [TYPE_MAP[t.strip()] for t in self.return_type.split(",") if t.strip() in TYPE_MAP]
-                    if expected_types and not any(isinstance(ret_val, t) for t in expected_types):
+                    if "," in self.return_type and any(t.strip() == "ptr" for t in self.return_type.split(",")) and isinstance(ret_val, Pointer):
+                        pass
+                    elif expected_types and not any(isinstance(ret_val, t) for t in expected_types):
                         raise TypeError(
                             f"Function '{self.name}': return type declared as '{self.return_type_raw}', "
                             f"but got {type(ret_val).__name__}"
@@ -918,7 +1001,7 @@ class ClassDefinition:
                 continue
             val = slot.value
             # Never expose ClassDefinition / EnumDefinition / built-in callables
-            if isinstance(val, (ClassDefinition, EnumDefinition)):
+            if isinstance(val, (ClassDefinition, EnumDefinition, EventDefinition)):
                 continue
             if callable(val) and not isinstance(val, FunctionDefinition):
                 continue
@@ -957,6 +1040,52 @@ class EnumDefinition:
     source_path: Path | None = None
 
 
+class EventDefinition:
+    """Una señal ligera declarada con `event nombre(params)` — sin cuerpo, sin 'end'.
+    El script nunca toca este objeto directamente: solo llama a sus dos metodos,
+    despachados por el mismo mecanismo generico de Attribute/Call que ya usa Pointer
+    (ver el `return getattr(value, node.attr)` al final de evaluate_ast):
+
+      .connect(handler) — registra una referencia a funcion (un Pointer creado con
+                           `$$nombre_funcion`) para que se ejecute en cada `.emit(...)`.
+      .emit(*args)       — invoca cada handler conectado, en orden de conexion,
+                            reenviando los argumentos. La cantidad de argumentos debe
+                            coincidir con la cantidad de parametros declarados.
+
+    Las anotaciones de tipo en los parametros (`entity: Entity`) son solo
+    documentacion — el evento no tiene cuerpo propio contra el cual validarlas —
+    asi que `.emit()` valida aridad (cantidad de argumentos) pero no tipos.
+    """
+
+    def __init__(self, name: str, params: list[str], source_path: Path | None = None) -> None:
+        self.name = name
+        self.params = params
+        self.source_path = source_path
+        self._handlers: list["Pointer"] = []
+
+    def connect(self, handler: Value) -> None:
+        if not isinstance(handler, Pointer):
+            raise TypeError(
+                f"Event '{self.name}'.connect(...) expects a function reference created "
+                f"with '$$function_name' (got {type(handler).__name__})"
+            )
+        if not handler.is_callable:
+            raise TypeError(f"Event '{self.name}'.connect(...): '{handler.name}' is not a function")
+        self._handlers.append(handler)
+
+    def emit(self, *args: Value) -> None:
+        if len(args) != len(self.params):
+            raise TypeError(
+                f"Event '{self.name}': emit() called with {len(args)} argument(s), "
+                f"but the event declares {len(self.params)}"
+            )
+        for handler in list(self._handlers):
+            handler.call(*args)
+
+    def __repr__(self) -> str:
+        return f"<Event {self.name}({', '.join(self.params)})>"
+
+
 def infer_type(value: Value) -> str:
     if isinstance(value, bool):
         return "bool"
@@ -970,6 +1099,8 @@ def infer_type(value: Value) -> str:
         return "array"
     if isinstance(value, dict):
         return "dict"
+    if isinstance(value, Pointer):
+        return "ptr"
     return "any"
 
 
@@ -984,33 +1115,157 @@ def _coerce_numeric_operands(a: Value, b: Value) -> tuple[Value, Value]:
 
 
 class Pointer:
+    """A reference to a named memory space — variable, constant, function, or class —
+    created with `$$target` (e.g. `$$letra`, `$$Damage`, `$$self.hp`, `$$arr[0]`).
+
+    A Pointer never carries a copy of what it points to; it only remembers the target
+    expression plus the scope it was captured in, and resolves lazily every time one of
+    its members is used. This is the ONLY way to obtain a handle to a function or class
+    without invoking it — referencing one by its bare name (no `$$`) is a script error
+    (see evaluate_expression), and old-style bare capture that leaked the raw internal
+    definition object (its full body/block content) no longer exists.
+
+    Member surface:
+      .call(...)    — invoke the referenced function/class/callable, forwarding any
+                      arguments it declares (needs explicit parentheses, e.g. `p.call(1,2)`)
+      .value        — get (or, via assignment, set) the value of a variable/constant
+      .name         — the name of the referenced memory space
+      .is_callable  — True for functions/classes, False for variables/constants
+      .is_mutable   — True only for a non-#reserved, non-constant variable
+      .size         — approximate size in bytes of the referenced value
+      .ref          — the real memory address (identity) of the referenced value
+
+    Indirect mutation rules: only variables can be changed through a pointer.
+    Constants are always immutable, and functions/classes can't be "assigned a value" —
+    attempting either through `.value = ...`/`.set()` raises. Targets declared with
+    #reserved can never be mutated through a pointer, protecting them from being changed
+    indirectly by other scripts that merely got a hold of the reference.
+    """
+
     def __init__(self, target: str, memory_manager: MemoryManager, current_dir: Path) -> None:
-        self._target = target
+        self._target = target.strip()
         self._memory_manager = memory_manager
         self._current_dir = current_dir
 
-    def get(self) -> Value:
-        return evaluate_expression(self._target, self._memory_manager, self._current_dir)
+    # ---- internal resolution -------------------------------------------------
 
-    def set(self, value: Value) -> None:
-        assign_target_expression(self._target, value, self._memory_manager, self._current_dir)
+    def _raw(self) -> Value:
+        """Resolve the target expression to its underlying value. Unlike
+        evaluate_expression(), this is allowed to return a raw FunctionDefinition or
+        ClassDefinition: the Pointer itself is the simplified, safe handle a script gets
+        instead of that internal object."""
+        expression = replace_pointer_syntax(self._target)
+        expression = re.sub(r"\$(?=[A-Za-z_])", "", expression)
+        parsed_body = parse_cached_expression(expression)
+        return evaluate_ast(parsed_body, self._memory_manager, self._current_dir)
+
+    def _resolve_slot(self) -> "MemorySlot | None":
+        """The MemorySlot backing this pointer, when the target is a bare identifier
+        (`$$name`). Dotted/indexed targets (`$$self.hp`, `$$arr[0]`) don't correspond to
+        a single named slot, so this returns None for those."""
+        if not is_valid_identifier(self._target):
+            return None
+        mgr: MemoryManager | None = self._memory_manager
+        while mgr is not None:
+            if self._target in mgr._slots:
+                return mgr._slots[self._target]
+            mgr = mgr.parent
+        return None
+
+    def _kind(self) -> str:
+        """'function' | 'class' | 'constant' | 'variable' — used to decide what a
+        pointer is allowed to do and to build clear error messages."""
+        slot = self._resolve_slot()
+        val = slot.value if slot is not None else self._raw()
+        if isinstance(val, FunctionDefinition):
+            return "function"
+        if isinstance(val, ClassDefinition):
+            return "class"
+        if slot is not None and slot.immutable:
+            return "constant"
+        return "variable"
+
+    # ---- public reference API ------------------------------------------------
+
+    def get(self) -> Value:
+        return self._raw()
+
+    def set(self, new_value: Value) -> None:
+        kind = self._kind()
+        if kind in ("function", "class"):
+            raise TypeError(f"Cannot assign through a pointer to a {kind} ('{self.name}')")
+        slot = self._resolve_slot()
+        if slot is not None and slot.immutable:
+            raise TypeError(f"Cannot assign through a pointer to a constant ('{self.name}')")
+        if slot is not None and slot.is_reserved:
+            raise AttributeError(f"Cannot change '{self.name}' through a pointer: it is declared #reserved")
+        # Unlike a normal `$name = value` assignment, writing through a pointer accepts any
+        # value type — a mismatch against the target's declared type is reported as a
+        # warning (via print_warning, shown with --w) rather than rejected with TypeError.
+        assign_target_expression(self._target, new_value, self._memory_manager, self._current_dir, bypass_type_check=True)
 
     @property
     def value(self) -> Value:
-        return self.get()
+        kind = self._kind()
+        if kind in ("function", "class"):
+            raise TypeError(
+                f"'{self.name}' is a {kind}; '.value' only applies to variables and "
+                f"constants — use '.call' to invoke it"
+            )
+        return self._raw()
 
     @value.setter
-    def value(self, value: Value) -> None:
-        self.set(value)
+    def value(self, new_value: Value) -> None:
+        self.set(new_value)
+
+    def call(self, *args: Value) -> Value:
+        """Invoke the referenced function/class (or plain callable), forwarding any
+        arguments it declares. Always used with explicit parentheses — `ptr.call()`,
+        `ptr.call(1, 2)` — same as calling the function/class directly by name would;
+        bare `ptr.call` (no parentheses) just returns the callable without invoking it."""
+        target_value = self._raw()
+        if isinstance(target_value, FunctionDefinition):
+            return target_value.call(list(args), self._memory_manager, self._current_dir, source_path=target_value.source_path)
+        if isinstance(target_value, ClassDefinition):
+            return target_value.instantiate(list(args), self._memory_manager, self._current_dir, source_path=target_value.source_path)
+        if callable(target_value):
+            return target_value(*args)
+        raise TypeError(f"'{self.name}' is not callable through this pointer")
+
+    @property
+    def name(self) -> str:
+        slot = self._resolve_slot()
+        return slot.name if slot is not None else self._target
+
+    @property
+    def is_callable(self) -> bool:
+        return self._kind() in ("function", "class")
+
+    @property
+    def is_mutable(self) -> bool:
+        if self._kind() in ("function", "class", "constant"):
+            return False
+        slot = self._resolve_slot()
+        if slot is not None and slot.is_reserved:
+            return False
+        return True
+
+    @property
+    def size(self) -> int:
+        return sys.getsizeof(self._raw())
+
+    @property
+    def ref(self) -> int:
+        return id(self._raw())
 
     def __repr__(self) -> str:
-        return f"<Pointer target={self._target!r}>"
+        return f"<Pointer -> {self.name} ({self._kind()})>"
 
 
-def assign_parsed_target(parsed: ast.expr, value: Value, memory_manager: MemoryManager, current_dir: Path) -> None:
+def assign_parsed_target(parsed: ast.expr, value: Value, memory_manager: MemoryManager, current_dir: Path, bypass_type_check: bool = False) -> None:
     if isinstance(parsed, ast.Name):
         try:
-            memory_manager.assign(parsed.id, value)
+            memory_manager.assign(parsed.id, value, bypass_type_check=bypass_type_check)
         except NameError:
             if value is None:
                 return
@@ -1054,12 +1309,12 @@ def assign_parsed_target(parsed: ast.expr, value: Value, memory_manager: MemoryM
     raise SyntaxError(f"Cannot assign to target: {ast.dump(parsed)}")
 
 
-def assign_target_expression(target: str, value: Value, memory_manager: MemoryManager, current_dir: Path) -> None:
+def assign_target_expression(target: str, value: Value, memory_manager: MemoryManager, current_dir: Path, bypass_type_check: bool = False) -> None:
     expression = target.strip()
     expression = replace_pointer_syntax(expression)
     expression = re.sub(r"\$(?=[A-Za-z_])", "", expression)
     parsed = parse_cached_expression(expression)
-    assign_parsed_target(parsed, value, memory_manager, current_dir)
+    assign_parsed_target(parsed, value, memory_manager, current_dir, bypass_type_check=bypass_type_check)
 
 
 def collect_block(lines: list[str], start_index: int) -> tuple[list[str], int]:
@@ -1076,7 +1331,7 @@ def collect_block(lines: list[str], start_index: int) -> tuple[list[str], int]:
         depth_probe = stripped
         while depth_probe.startswith("#reserved"):
             depth_probe = depth_probe[len("#reserved"):].strip()
-        if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ")) or depth_probe == "try":
+        if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ", "match ")) or depth_probe == "try":
             depth += 1
         elif stripped == "end":
             if depth == 0:
@@ -1101,7 +1356,7 @@ def collect_if_group(lines: list[str], start_index: int) -> tuple[list[tuple[str
         depth_probe = stripped
         while depth_probe.startswith("#reserved"):
             depth_probe = depth_probe[len("#reserved"):].strip()
-        if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ")) or depth_probe == "try":
+        if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ", "match ")) or depth_probe == "try":
             depth += 1
         elif stripped == "end":
             if depth == 0:
@@ -1139,7 +1394,7 @@ def collect_try_block(lines: list[str], start_index: int) -> tuple[list[str], li
         depth_probe = stripped
         while depth_probe.startswith("#reserved"):
             depth_probe = depth_probe[len("#reserved"):].strip()
-        if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ")) or depth_probe == "try":
+        if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ", "match ")) or depth_probe == "try":
             depth += 1
         elif depth == 0 and stripped in ("catch", "except"):
             current_block = catch_body
@@ -1152,6 +1407,121 @@ def collect_try_block(lines: list[str], start_index: int) -> tuple[list[str], li
         current_block.append(lines[i])
         i += 1
     raise SyntaxError("Try block was not properly closed with 'end'")
+
+
+def _split_match_case_labels(label_text: str) -> list[str]:
+    """Split a match-case header on top-level commas only, so a single label that
+    is itself an array/dict literal (e.g. `[1, 2, 3]`, `{"a": 1, "b": 2}`) is kept
+    as ONE label instead of being torn apart by its own internal commas. Unlike
+    `split_call_arguments` (a plain str.split(',')), this tracks (), [], {} nesting
+    depth and string-quote state so those internal commas are never treated as
+    label separators."""
+    labels: list[str] = []
+    current: list[str] = []
+    depth = 0
+    in_string: str | None = None
+    i = 0
+    while i < len(label_text):
+        char = label_text[i]
+        if in_string is not None:
+            current.append(char)
+            if char == in_string and (i == 0 or label_text[i - 1] != "\\"):
+                in_string = None
+            i += 1
+            continue
+        if char in ('"', "'"):
+            in_string = char
+            current.append(char)
+            i += 1
+            continue
+        if char in "([{":
+            depth += 1
+            current.append(char)
+            i += 1
+            continue
+        if char in ")]}":
+            depth -= 1
+            current.append(char)
+            i += 1
+            continue
+        if char == "," and depth == 0:
+            labels.append("".join(current).strip())
+            current = []
+            i += 1
+            continue
+        current.append(char)
+        i += 1
+    tail = "".join(current).strip()
+    if tail:
+        labels.append(tail)
+    return [label for label in labels if label != ""]
+
+
+def collect_match_block(lines: list[str], start_index: int) -> tuple[str, list[tuple[list[str] | None, list[str]]], int]:
+    """Parsea un bloque `match sujeto ... end` en una lista de casos.
+
+    Cada caso se abre con una linea `case expr1, expr2` (comparada por igualdad
+    contra el sujeto) o con `else` (caso por defecto, solo puede aparecer una vez).
+    Sin dos puntos: mismo estilo sin colon que usan `if`/`elseif`/`else`. No hay
+    fallthrough: `execute_match` ejecuta el primer caso que coincide y se detiene,
+    igual que `execute_if_group` con if/elseif/else.
+    """
+    subject_expression = lines[start_index].strip()[len("match"):].strip()
+    if not subject_expression:
+        raise SyntaxError("Invalid 'match' header: missing subject expression")
+
+    cases: list[tuple[list[str] | None, list[str]]] = []
+    current_labels: list[str] | None = None
+    current_block: list[str] = []
+    has_case = False
+    seen_else = False
+    depth = 0
+    i = start_index + 1
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if is_comment(stripped):
+            i += 1
+            continue
+        depth_probe = stripped
+        while depth_probe.startswith("#reserved"):
+            depth_probe = depth_probe[len("#reserved"):].strip()
+        if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ", "match ")) or depth_probe == "try":
+            depth += 1
+        elif stripped == "end":
+            if depth == 0:
+                if has_case:
+                    cases.append((current_labels, current_block))
+                return subject_expression, cases, i + 1
+            depth -= 1
+        elif depth == 0 and stripped == "else":
+            if seen_else:
+                raise SyntaxError("Invalid 'match' block: multiple 'else' cases")
+            if has_case:
+                cases.append((current_labels, current_block))
+            current_labels = None
+            current_block = []
+            has_case = True
+            seen_else = True
+            i += 1
+            continue
+        elif depth == 0 and stripped.startswith("case "):
+            label_text = stripped[len("case "):].strip()
+            labels = _split_match_case_labels(label_text)
+            if not labels:
+                raise SyntaxError(f"Invalid 'match' case: {stripped}")
+            if has_case:
+                cases.append((current_labels, current_block))
+            current_labels = labels
+            current_block = []
+            has_case = True
+            i += 1
+            continue
+        elif not has_case and not is_blank(stripped):
+            raise SyntaxError(f"Invalid 'match' block: expected a 'case' before: {stripped}")
+        if has_case:
+            current_block.append(lines[i])
+        i += 1
+    raise SyntaxError("Block 'match' was not properly closed with 'end'")
 
 
 def evaluate_ast(node: ast.AST, memory_manager: MemoryManager, current_dir: Path) -> Value:
@@ -1399,10 +1769,25 @@ def evaluate_expression(expression: str, memory_manager: MemoryManager, current_
     expression = expression.strip()
     if not expression:
         return None
-    expression = replace_pointer_syntax(expression)
-    expression = re.sub(r"\$(?=[A-Za-z_])", "", expression)
-    parsed_body = parse_cached_expression(expression)
-    return evaluate_ast(parsed_body, memory_manager, current_dir)
+    parsed_body = _RAW_EXPRESSION_AST_CACHE.get(expression)
+    if parsed_body is None:
+        transformed = replace_pointer_syntax(expression)
+        transformed = re.sub(r"\$(?=[A-Za-z_])", "", transformed)
+        parsed_body = parse_cached_expression(transformed)
+        _RAW_EXPRESSION_AST_CACHE[expression] = parsed_body
+    result = evaluate_ast(parsed_body, memory_manager, current_dir)
+    # A function/class name used bare (no `$$`, no call parentheses) used to leak the raw
+    # internal definition object — its full body/block content. That capture path is gone:
+    # a reference now requires `$$name` (returns a Pointer), and invoking it requires
+    # `$name(...)`. Pointer._raw() bypasses this check on purpose (it's the only place
+    # allowed to hold the raw object, wrapped behind the Pointer's simplified interface).
+    if isinstance(result, (FunctionDefinition, ClassDefinition)):
+        kind = "class" if isinstance(result, ClassDefinition) else "function"
+        raise TypeError(
+            f"'{result.name}' is a {kind} and cannot be used directly here; capture a "
+            f"reference with $${result.name}, or call it with ${result.name}(...)"
+        )
+    return result
 
 
 def evaluate_dollar_expression(token: str, memory_manager: MemoryManager, current_dir: Path) -> Value:
@@ -1546,6 +1931,11 @@ def assign_to_variable(target: str, expression: str, memory_manager: MemoryManag
     try:
         parsed = parse_cached_expression(normalized_target)
     except SyntaxError:
+        if memory_manager.has(normalized_target):
+            current = memory_manager.get(normalized_target)
+            if isinstance(current, Pointer):
+                current.set(value)
+                return
         try:
             memory_manager.assign(normalized_target, value)
             return
@@ -1557,6 +1947,14 @@ def assign_to_variable(target: str, expression: str, memory_manager: MemoryManag
             return
 
     if isinstance(parsed, ast.Name):
+        # `$name = value` on a slot currently holding a Pointer dereferences through it
+        # (mutates whatever it points to) instead of overwriting the pointer itself.
+        # To rebind the pointer's own slot, use `$$name = ...` (see the `$$` branch above).
+        if memory_manager.has(parsed.id):
+            current = memory_manager.get(parsed.id)
+            if isinstance(current, Pointer):
+                current.set(value)
+                return
         try:
             memory_manager.assign(parsed.id, value)
         except NameError:
@@ -1607,10 +2005,21 @@ def assign_value_to_variable(target: str, value: Value, memory_manager: MemoryMa
     try:
         parsed = ast.parse(normalized_target, mode="eval").body
     except SyntaxError:
+        if memory_manager.has(normalized_target):
+            current = memory_manager.get(normalized_target)
+            if isinstance(current, Pointer):
+                current.set(value)
+                return
         memory_manager.assign(normalized_target, value)
         return
 
     if isinstance(parsed, ast.Name):
+        # Same dereference-through-pointer rule as assign_to_variable() above.
+        if memory_manager.has(parsed.id):
+            current = memory_manager.get(parsed.id)
+            if isinstance(current, Pointer):
+                current.set(value)
+                return
         memory_manager.assign(parsed.id, value)
         return
     if isinstance(parsed, ast.Subscript):
@@ -1749,6 +2158,12 @@ def define_enum_line(line: str, memory_manager: MemoryManager, source_path: Path
     memory_manager.allocate(name, "any", enum_def)
 
 
+def define_event_line(line: str, memory_manager: MemoryManager, source_path: Path | None = None) -> None:
+    name, params = parse_event_header(line)
+    event_def = EventDefinition(name=name, params=params, source_path=source_path)
+    memory_manager.allocate(name, "any", event_def, defined_line=_CURRENT_LINE)
+
+
 def execute_block(lines: list[str], memory_manager: MemoryManager, current_dir: Path, trace: bool = True, source_path: Path | None = None, line_offset: int = 0) -> None:
     process_source_lines(lines, memory_manager, current_dir, trace=trace, source_path=source_path, line_offset=line_offset)
 
@@ -1773,6 +2188,30 @@ def execute_if_group(groups: list[tuple[str | None, list[str]]], memory_manager:
                 block_memory.release_block_variables(set(block_memory._slots.keys()))
             return
         branch_offset += len(body) + 1  # +1 for the elseif/else header line
+
+
+def execute_match(subject_expression: str, cases: list[tuple[list[str] | None, list[str]]], memory_manager: MemoryManager, current_dir: Path, trace: bool = True, source_path: Path | None = None, line_offset: int = 0) -> None:
+    # Evaluate the subject once; each case label is compared against this value
+    # with `==`, exactly like `if $sujeto == etiqueta`. No fallthrough: the first
+    # matching case (or `else`, if none matched before it) runs and match returns.
+    subject_value = evaluate_expression(subject_expression, memory_manager, current_dir)
+    branch_offset = line_offset
+    for labels, body in cases:
+        matched = labels is None
+        if not matched:
+            for label_expression in labels:
+                if evaluate_expression(label_expression, memory_manager, current_dir) == subject_value:
+                    matched = True
+                    break
+        if matched:
+            block_memory = MemoryManager(parent=memory_manager)
+            try:
+                execute_block(body, block_memory, current_dir, trace=trace, source_path=source_path,
+                              line_offset=branch_offset)
+            finally:
+                block_memory.release_block_variables(set(block_memory._slots.keys()))
+            return
+        branch_offset += len(body) + 1  # +1 for the case-label header line
 
 
 def execute_while(condition: str, body: list[str], memory_manager: MemoryManager, current_dir: Path, trace: bool = True, source_path: Path | None = None, line_offset: int = 0) -> None:
@@ -1852,15 +2291,46 @@ def is_valid_identifier(name: str) -> bool:
     return all(c.isalnum() or c == '_' for c in name)
 
 
+# Cache of `remove_comments()` results keyed by id() of the input `lines` list.
+# The huge win this targets: a while/for loop's body is the exact same list
+# object on every single iteration (collected once by collect_block, then
+# reused unchanged by the Python-level loop in execute_while/execute_for), yet
+# prepare_source_lines() used to re-scan and re-strip comments from that same
+# static text on every iteration — for a loop with N iterations, the same
+# handful of lines got fully re-parsed N times over for zero benefit, since
+# the source text never changes between iterations. Each cache entry stores
+# the `lines` object itself alongside the result, so a lookup can confirm with
+# `is` that this is really the same list before trusting the cached value —
+# guarding against the (very unlikely) case where the original list was
+# garbage-collected and a new, unrelated list happens to get the same id().
+_REMOVE_COMMENTS_CACHE: dict[int, tuple[list[str], list[str]]] = {}
+
+
+def _remove_comments_cached(lines: list[str]) -> list[str]:
+    cache_key = id(lines)
+    cached = _REMOVE_COMMENTS_CACHE.get(cache_key)
+    if cached is not None and cached[0] is lines:
+        return cached[1]
+    cleaned = remove_comments(lines)
+    _REMOVE_COMMENTS_CACHE[cache_key] = (lines, cleaned)
+    return cleaned
+
+
 def prepare_source_lines(lines: list[str], memory_manager: MemoryManager, current_dir: Path) -> list[str]:
     """Remove comments and run #onready declarations before normal execution."""
     if lines and lines[0].startswith("#!"):
         lines = lines[1:]
 
-    lines = remove_comments(lines)
+    lines = _remove_comments_cached(lines)
     processed_lines: list[str] = []
     for raw_line in lines:
-        line = strip_comments(raw_line).strip()
+        # `remove_comments()` already stripped every comment (both `--` and
+        # `!*...!*`) from `lines` above, so `raw_line` is already comment-free
+        # here — a plain `.strip()` is enough to check for a `#onready`
+        # prefix. Re-running the full `strip_comments()` scanner on top of an
+        # already-clean line was pure redundant work (a second full
+        # character-by-character pass finding nothing left to strip).
+        line = raw_line.strip()
         if process_onready_declaration(line, raw_line, memory_manager, current_dir):
             continue
         processed_lines.append(raw_line)
@@ -1967,6 +2437,9 @@ def execute_definition_statement(
     if probe.startswith("enum "):
         define_enum_line(probe, memory_manager, source_path=source_path)
         return index + 1
+    if probe.startswith("event "):
+        define_event_line(probe, memory_manager, source_path=source_path)
+        return index + 1
     return None
 
 
@@ -2020,6 +2493,11 @@ def execute_control_block_statement(
         target, target_annotation, source_expression = parse_for_header(line)
         execute_for(target, source_expression, block, memory_manager, current_dir, trace=trace, source_path=source_path,
                     line_offset=line_offset + index + 1, target_annotation=target_annotation)
+        return next_index
+    if line.startswith("match "):
+        subject_expression, cases, next_index = collect_match_block(lines, index)
+        execute_match(subject_expression, cases, memory_manager, current_dir, trace=trace, source_path=source_path,
+                      line_offset=line_offset + index + 1)
         return next_index
     return None
 
@@ -2140,15 +2618,21 @@ def calculate_compound_value(current_value: Value, right_value: Value, operator:
     return current_value / right_value
 
 
+_ASSIGNABLE_DOLLAR_TARGET_CACHE: dict[str, "ast.expr | None"] = {}
+
+
 def parse_assignable_dollar_target(target: str) -> ast.expr | None:
+    if target in _ASSIGNABLE_DOLLAR_TARGET_CACHE:
+        return _ASSIGNABLE_DOLLAR_TARGET_CACHE[target]
     normalized_target = replace_pointer_syntax(target[1:])
     normalized_target = re.sub(r"\$(?=[A-Za-z_])", "", normalized_target)
     try:
         parsed_target = parse_cached_expression(normalized_target)
     except SyntaxError:
-        return None
+        parsed_target = None
     if isinstance(parsed_target, ast.Call):
-        return None
+        parsed_target = None
+    _ASSIGNABLE_DOLLAR_TARGET_CACHE[target] = parsed_target
     return parsed_target
 
 
@@ -2172,6 +2656,8 @@ def execute_compound_assignment(line: str, memory_manager: MemoryManager, curren
             continue
         current_expression = target[1:] if target.startswith("$$") else target
         current_value = evaluate_expression(current_expression, memory_manager, current_dir)
+        if isinstance(current_value, Pointer):
+            current_value = current_value.value
         right_value = evaluate_expression(expression, memory_manager, current_dir)
         new_value = calculate_compound_value(current_value, right_value, operator)
         assign_value_to_variable(target, new_value, memory_manager, current_dir)
@@ -2254,7 +2740,13 @@ def process_source_lines(lines: list[str], memory_manager: MemoryManager, curren
     index = 0
     while index < len(processed_lines):
         raw_line = processed_lines[index]
-        line = strip_comments(raw_line).strip()
+        # `processed_lines` already went through `prepare_source_lines()` above,
+        # which already stripped every comment from it — so a plain `.strip()`
+        # (whitespace only) is all that's needed here. Running the full
+        # `strip_comments()` scanner again on top of an already-clean line, on
+        # every single statement execution (the hottest loop in the whole
+        # interpreter), used to be one of the biggest costs in tight loops.
+        line = raw_line.strip()
         global _CURRENT_LINE
         _CURRENT_LINE = line_offset + index + 1
         try:

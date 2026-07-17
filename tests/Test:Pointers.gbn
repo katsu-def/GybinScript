@@ -1,6 +1,26 @@
--- Punteros, no terminado.
+#!/usr/bin/Gybin
+
+-- Pointers
 
 var hp: int = 100
-var ref: any = $$hp
+var ref: ptr = $$hp
 
-$print($ref)
+$print($ref.value)
+$ref = 200
+$print($ref.value)
+
+
+func sum(a: int, b: int) -> int
+	return a + b
+end
+
+
+func init() -> NULL
+	var landba: ptr = $$sum
+	$print($landba)
+
+	var result: int = $landba.call(2, 4)
+	$print($result)
+end
+	
+run

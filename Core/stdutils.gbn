@@ -1,11 +1,120 @@
 -- Standar library
 
 class Engine
-  const VERSION: str[8] = "1.4.0a"
+  const VERSION: str[8] = "1.5.0"
   const AUTHOR: str[10] = "Katsu Dev"
 end
 
-var GBN: any = $Engine()
+
+var GBN: Engine = $Engine()
+
+
+class vec2
+	var x: float = NULL
+	var y: float = NULL
+
+	func init(x: float, y: float) -> NULL
+		$self.x = $x
+		$self.y = $y
+
+		--var result: array[float][2] = [$x, $y]
+		--return $result
+	end
+
+	func zero() -> NULL
+		$self.x = 0.0
+		$self.y = 0.0
+	end
+end
+
+
+class vec2i
+	var x: int = NULL
+	var y: int = NULL
+
+	func init(x: int, y: int) -> NULL
+		$self.x = $x
+		$self.y = $y
+
+		--var result: array[int][2] = [$x, $y]
+		--return $result
+	end
+
+	func zero() -> NULL
+		$self.x = 0
+		$self.y = 0
+	end
+end
+
+
+class vec3
+	var x: float = NULL
+	var y: float = NULL
+	var z: float = NULL
+
+	func init(x: float, y: float, z: float) -> NULL
+		$self.x = $x
+		$self.y = $y
+		$self.z = $z
+
+		--var result: array[float][3] = [$x, $y, $z]
+		--return $result
+	end	
+
+	func zero() -> NULL
+		$self.x = 0.0
+		$self.y = 0.0
+		$self.z = 0.0
+	end
+end
+
+
+class vec3i
+	var x: int = NULL
+	var y: int = NULL
+	var z: int = NULL
+
+	func init(x: int, y: int, z: int) -> NULL
+		$self.x = $x
+		$self.y = $y
+		$self.z = $z
+
+		--var result: array[int][3] = [$x, $y, $z]
+		--return $result
+	end
+
+	func zero() -> NULL
+		$self.x = 0
+		$self.y = 0
+		$self.z = 0
+	end
+end
+
+
+class color
+	var r: float = NULL
+	var g: float = NULL
+	var b: float = NULL
+	var a: float = NULL
+
+	func init(r: float, g: float, b: float, a: float) -> NULL
+		$self.r = $max($min($r, 0), 1.0)
+		$self.g = $max($min($g, 0), 1.0)
+		$self.b = $max($min($b, 0), 1.0)
+
+		var result: array[float][4] = []
+		if $a == NULL
+			$self.a = 0.0
+
+			--$result = [$r, $g, $b, $self.a]
+			--return $result
+		else
+			$self.a = $max($min($a, 0), 1.0)
+			--$result = [$r, $g, $b, $self.a]
+			--return $result
+		end
+	end
+end
 
 
 func contains(collection: array, element: any) -> bool
@@ -16,6 +125,7 @@ func contains(collection: array, element: any) -> bool
   end
   return false
 end
+
 
 func index_of(collection: array, element: any) -> int
   var position: int = 0
@@ -28,9 +138,11 @@ func index_of(collection: array, element: any) -> int
   return -1
 end
 
+
 func str_split(text: str[1024], delimiter: str[64]) -> array
   return text.split(delimiter)
 end
+
 
 func str_join(separator: str[64], items: array) -> str
   var result: str = ""
@@ -46,25 +158,31 @@ func str_join(separator: str[64], items: array) -> str
   return $result
 end
 
+
 func to_lower(text: str[1024]) -> str
   return $text.lower()
 end
+
 
 func to_upper(text: str[1024]) -> str
   return $text.upper()
 end
 
+
 func starts_with(text: str[1024], prefix: str[256]) -> bool
   return $text.startswith($prefix)
 end
+
 
 func ends_with(text: str[1024], suffix: str[256]) -> bool
   return $text.endswith($suffix)
 end
 
+
 func has_key(mapping: dict, key: any) -> bool
   return $key in $mapping
 end
+
 
 func input(prompt: str[256]) -> str
   if $prompt is NULL
@@ -72,6 +190,7 @@ func input(prompt: str[256]) -> str
   end
   return $_input($prompt)
 end
+
 
 func merge_dict(destination: dict, source: dict) -> dict
   var merged: dict = $destination
@@ -81,7 +200,23 @@ func merge_dict(destination: dict, source: dict) -> dict
   return $merged
 end
 
+
 func pause() -> NULL
   $input("pause> ")
 end
 
+
+func max(entry: float, maximun: float) -> float
+	if $entry > $maximun
+		return $maximun
+	end
+	return entry
+end
+
+
+func min(entry: float, minimun: float) -> float
+	if $entry < $minimun
+		return $minimun
+	end
+	return $entry
+end
