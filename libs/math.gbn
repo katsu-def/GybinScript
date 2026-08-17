@@ -722,3 +722,12 @@ end
 func _vec_unit(_v: array) -> array
 	return _vec_normalize($_v)
 end
+
+-- decimals
+func _dec(_num: float) -> int
+	return $int($_num * 10)
+end
+
+func _exc(_operation: int) -> float
+	return $_operation / 10
+end
