@@ -7,7 +7,7 @@
 #onready var _random_seed: float = 12345.0
 
 -- Set the seed for reproducible random numbers
-func _seed(_new_seed: float) -> void
+func _seed(_new_seed: float) -> NULL
 	$_random_seed = $_new_seed
 end
 
@@ -35,7 +35,7 @@ func _random_int(_min_val: float, _max_val: float) -> int
 	end
 	var _range: float = $_high - $_low + 1
 	var _value: float = $_random() * $_range
-	return $_int($_low + $_floor($_value))
+	return $int($_low + $_floor($_value))
 end
 
 -- Generate a random float between min and max
@@ -118,7 +118,15 @@ func _random_shuffle(_arr: array) -> array
 end
 
 -- Generate a random float with Gaussian distribution (Box-Muller transform)
-func _random_gaussian(_mean: float = 0, _std_dev: float = 1) -> float
+func _random_gaussian(_mean: float, _std_dev: float) -> float
+	if $_mean == NULL
+		$_mean = 0
+	end
+
+	if $_std_dev == NULL
+		$_std_dev = 1
+	end
+
 	var _u1: float = $_random()
 	var _u2: float = $_random()
 
@@ -132,8 +140,17 @@ func _random_gaussian(_mean: float = 0, _std_dev: float = 1) -> float
 end
 
 -- Generate a random float with Gaussian distribution (simpler approximation)
-func _random_normal(_mean: float = 0, _std_dev: float = 1) -> float
+func _random_normal(_mean: float, _std_dev: float) -> float
 	-- Central Limit Theorem approximation using 12 uniform values
+
+	if $_mean == NULL
+		$_mean = 0
+	end
+
+	if $_std_dev == NULL
+		$_std_dev = 1
+	end
+
 	var _sum: float = 0
 
 	for _i in range(0, 12)
@@ -154,7 +171,11 @@ func _random_percent() -> float
 end
 
 -- Generate a random float in exponential distribution
-func _random_exponential(_lambda: float = 1) -> float
+func _random_exponential(_lambda: float) -> float
+	if $_lambda == NULL
+		$_lambda = 1	
+	end
+	
 	return - $_log($_random()) / $_lambda
 end
 
@@ -200,12 +221,28 @@ func _random_bool_array(_count: float) -> array
 end
 
 -- Generate a random 2D vector
-func _random_vec2(_min_val: float = 0, _max_val: float = 1) -> array
+func _random_vec2(_min_val: float, _max_val: float) -> array
+	if $_min_val == NULL
+		$_min_val = 0
+	end
+
+	if $_max_val == NULL
+		$_max_val = 1
+	end
+	
 	return [$_random_float($_min_val, $_max_val), $_random_float($_min_val, $_max_val)]
 end
 
 -- Generate a random 3D vector
-func _random_vec3(_min_val: float = 0, _max_val: float = 1) -> array
+func _random_vec3(_min_val: float, _max_val: float) -> array
+	if $_min_val == NULL
+		$_min_val = 0
+	end
+
+	if $_max_val == NULL
+		$_max_val = 1
+	end
+	
 	return [$_random_float($_min_val, $_max_val), $_random_float($_min_val, $_max_val), $_random_float($_min_val, $_max_val)]
 end
 
@@ -225,14 +262,22 @@ func _random_direction_3d() -> array
 end
 
 -- Generate a random vector within a sphere (3D)
-func _random_in_sphere(_radius: float = 1) -> array
+func _random_in_sphere(_radius: float) -> array
+	if $_radius == NULL
+		$_radius = 1
+	end
+	
 	var _direction: array = $_random_direction_3d()
 	var _magnitude: float = $_pow($_random(), 1.0 / 3.0) * $_radius
 	return [$_direction[0] * $_magnitude, $_direction[1] * $_magnitude, $_direction[2] * $_magnitude]
 end
 
 -- Generate a random vector within a circle (2D)
-func _random_in_circle(_radius: float = 1) -> array
+func _random_in_circle(_radius: float) -> array
+	if $_radius == NULL
+		$_radius = 1
+	end
+	
 	var _direction: array = _random_direction_2d()
 	var _magnitude: float = $_sqrt($_random()) * $_radius
 	return [$_direction[0] * $_magnitude, $_direction[1] * $_magnitude]
