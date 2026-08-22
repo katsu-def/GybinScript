@@ -38,8 +38,28 @@ def _builtin_file_exists(path: str) -> bool:
     return Path(path).exists()
 
 
+def _builtin_reprint(*args: Any, sep: str = " ", end: str = "", flush: bool = True, **kwargs: Any) -> None:
+    """Alternative to $print for status/progress output: overwrites the current
+    terminal line in place instead of starting a new one on every call, without
+    the caller having to spell out `\\r` (and an ANSI clear) by hand every time
+    the way a plain `$print` would need.
+
+    Defaults to no trailing newline (`end=""`) so the NEXT call keeps overwriting
+    the same line, and flushes immediately since there's no newline left to
+    trigger the usual auto-flush. Pass `end="\\n"` to finish the live line and
+    return to normal line-by-line output afterwards — with that override this
+    behaves exactly like a regular `$print`, so nothing is lost by using it
+    everywhere `$print` would otherwise go.
+    """
+    text = sep.join(str(arg) for arg in args)
+    # "\x1b[K" clears anything left over from a longer previous call on this same
+    # line (e.g. going from "99%" down to "5%" without a stray "9%" tail).
+    print(f"\r{text}\x1b[K", end=end, flush=flush, **kwargs)
+
+
 BUILTIN_FUNCTIONS: dict[str, Any] = {
     "print": print,
+    "reprint": _builtin_reprint,
     "_input": input,
     "int": int,
     "float": float,

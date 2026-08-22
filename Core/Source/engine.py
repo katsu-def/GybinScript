@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import ast
 import re
+import struct
 import sys
 import time
 import importlib.util
@@ -81,6 +82,10 @@ class MemorySlot:
     defined_line: int | None = None  # Source line where this slot was first declared
     assign_count: int = 0            # Number of times the value has been re-assigned
     is_reserved: bool = False        # True if declared with #reserved (private to the class)
+    mutable_via_pointer: bool = False  # True if declared with #inmutable: acts like a const for
+                                        # direct `$name = ...` assignment (immutable=True enforces
+                                        # that), but a pointer's .set()/.value= is still allowed
+                                        # through — see Pointer.set()/_kind() and assign().
 
 
 class MemoryError(Exception):
@@ -161,13 +166,45 @@ def _wrap_parser_error(exc: Exception, file_path: Path | None = None, line: int 
     return ParserError(message, file_path=file_path, line=line, column=column, original=exc)
 
 
+# int[N] / float[N] (see source_tools.parse_annotation): the declared bit width
+# reuses the same `max_size` slot field that str[N]/array[T][N]/dict[V][N] use for
+# a count — for numeric types it means "range/precision this value must fit in"
+# instead. Ranges are signed two's-complement, matching how every other language
+# that offers explicit-width integers defines them.
+_INT_BIT_RANGES: dict[int, tuple[int, int]] = {
+    bits: (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1) for bits in (8, 16, 32, 64)
+}
+# float[N] widths map onto IEEE-754 half/single/double precision — exactly the
+# formats Python's own `struct` module already knows how to pack ('e'/'f'/'d'),
+# so overflow (magnitude too large to represent) is detected for free instead of
+# hand-rolling exponent-range math.
+_FLOAT_STRUCT_CODE: dict[int, str] = {16: "e", 32: "f", 64: "d"}
+
+
+def _smallest_int_bits_for(value: int) -> int | None:
+    """Smallest supported int[N] width that can hold `value`, or None if it doesn't
+    fit even int[64] — used only to build a helpful error message."""
+    for bits in (8, 16, 32, 64):
+        low, high = _INT_BIT_RANGES[bits]
+        if low <= value <= high:
+            return bits
+    return None
+
+
+def _effective_numeric_bits(max_size: int | None) -> int:
+    """int[N]/float[N] declared bit width, or the language's implicit default (64)
+    when no width was given — used on both sides of an int<->float coercion so the
+    comparison always has a concrete number to compare, never None vs None."""
+    return max_size if max_size is not None else 64
+
+
 class MemoryManager:
     def __init__(self, parent: MemoryManager | None = None, max_slots: int = MAX_MEMORY_SLOTS) -> None:
         self.parent = parent
         self.max_slots = max_slots
         self._slots: dict[str, MemorySlot] = {}
 
-    def allocate(self, name: str, type_name: str, value: Value, immutable: bool = False, max_size: int | None = None, element_type: str | None = None, is_ready: bool = False, defined_line: int | None = None, is_reserved: bool = False) -> None:
+    def allocate(self, name: str, type_name: str, value: Value, immutable: bool = False, max_size: int | None = None, element_type: str | None = None, is_ready: bool = False, defined_line: int | None = None, is_reserved: bool = False, source_bits: int | None = None, mutable_via_pointer: bool = False) -> None:
         if len(self._slots) >= self.max_slots and name not in self._slots:
             raise MemoryError("Memory limit reached")
 
@@ -176,23 +213,58 @@ class MemoryManager:
 
         normalized_type = self._validate_type_name(type_name)
 
+        # `ptr` accepts a bare integer literal (hex or decimal, e.g. `0x7fff5fbff80c`) as a
+        # raw memory address — see Pointer(raw_address=...). This wraps it in the same
+        # Pointer interface a named `$$target` reference uses, but with no backing script
+        # value: only .ref/.name/.is_callable/.is_mutable are meaningful for it, and
+        # .value/.set()/.call() raise a clear error rather than attempting to actually
+        # dereference an arbitrary process address (unsafe and not something a tree-walking
+        # interpreter can do without ctypes-level risk — deliberately not implemented).
+        if normalized_type == "ptr" and isinstance(value, int) and not isinstance(value, bool) and not isinstance(value, Pointer):
+            value = Pointer(raw_address=value)
+
         # Track multi-type info for later warning analysis
         allowed_types = None
         if "," in normalized_type:
             allowed_types = [t.strip() for t in normalized_type.split(",")]
 
-        if max_size is not None:
-            self._validate_size(normalized_type, value, max_size)
-
-        # Intentar coerción automática entre int y float cuando el tipo objetivo lo permite
+        # Intentar coerción automática entre int y float cuando el tipo objetivo lo permite.
+        # This must run BEFORE _validate_size(): for int[N]/float[N] the size check needs
+        # to see the final, coerced value (e.g. `var x: int[8] = 200.0` should be range-
+        # checked as the int 200, not skipped because it was still a float at this point).
+        #
+        # This coercion only fires across matching bit widths: the target's declared
+        # width (int[N]/float[N], or the implicit 64 if unannotated) must equal the
+        # source's own declared width (also 64 if the source isn't itself a declared
+        # int/float variable — e.g. a literal or a computed expression). A mismatch is
+        # a hard error here, never a silent narrowing/widening.
         if "," not in normalized_type:
             if normalized_type == "int" and isinstance(value, float):
+                target_bits = _effective_numeric_bits(max_size)
+                source_eff_bits = _effective_numeric_bits(source_bits)
+                if target_bits != source_eff_bits:
+                    raise TypeError(
+                        f"Cannot implicitly convert a {source_eff_bits}-bit float to int[{target_bits}] "
+                        f"for '{name}': bit widths differ (use matching widths, e.g. int[{source_eff_bits}], "
+                        f"or convert explicitly)."
+                    )
                 if value.is_integer():
                     value = int(value)
                 else:
                     raise TypeError(f"Cannot assign float with fractional part to {name}: {normalized_type}")
             if normalized_type == "float" and isinstance(value, int):
+                target_bits = _effective_numeric_bits(max_size)
+                source_eff_bits = _effective_numeric_bits(source_bits)
+                if target_bits != source_eff_bits:
+                    raise TypeError(
+                        f"Cannot implicitly convert a {source_eff_bits}-bit int to float[{target_bits}] "
+                        f"for '{name}': bit widths differ (use matching widths, e.g. float[{source_eff_bits}], "
+                        f"or convert explicitly)."
+                    )
                 value = float(value)
+
+        if max_size is not None:
+            self._validate_size(normalized_type, value, max_size)
 
         if not self._type_matches(normalized_type, value) and normalized_type != "any":
             raise TypeError(f"Cannot assign {type(value).__name__} a {name}: {normalized_type}")
@@ -211,7 +283,7 @@ class MemoryManager:
             except:
                 used_types = set()
 
-        self._slots[name] = MemorySlot(name=name,type_name=normalized_type, value=value, immutable=immutable, max_size=max_size, element_type=element_type, is_ready=is_ready, previous_value=value, allowed_types=allowed_types, used_types=used_types, defined_line=defined_line, is_reserved=is_reserved)
+        self._slots[name] = MemorySlot(name=name,type_name=normalized_type, value=value, immutable=immutable, max_size=max_size, element_type=element_type, is_ready=is_ready, previous_value=value, allowed_types=allowed_types, used_types=used_types, defined_line=defined_line, is_reserved=is_reserved, mutable_via_pointer=mutable_via_pointer)
 
         # Suspicious conversion warning
         if globals().get("WARNINGS") and "," not in normalized_type and value is not None:
@@ -228,13 +300,24 @@ class MemoryManager:
                         line=defined_line,
                     )
 
-    def assign(self, name: str, value: Value, type_name: str | None = None, bypass_type_check: bool = False) -> None:
+    def assign(self, name: str, value: Value, type_name: str | None = None, bypass_type_check: bool = False, source_bits: int | None = None) -> None:
         if name in self._slots:
             slot = self._slots[name]
             if slot.immutable:
-                raise TypeError(f"Immutable constant: {name}")
+                # #inmutable variables behave like a const for direct assignment, but are
+                # allowed through when the write is coming from a pointer (bypass_type_check
+                # is only ever set by Pointer.set()) — a true `const` never allows this.
+                if not (bypass_type_check and slot.mutable_via_pointer):
+                    if slot.mutable_via_pointer:
+                        raise TypeError(f"'{name}' is #inmutable: cannot be reassigned directly (only through a pointer)")
+                    raise TypeError(f"Immutable constant: {name}")
             target_type = type_name or slot.type_name
             normalized_type = self._validate_type_name(target_type)
+
+            # See allocate() for the rationale: a bare int assigned to a `ptr`-typed slot
+            # is treated as a raw memory address, not a type mismatch.
+            if normalized_type == "ptr" and isinstance(value, int) and not isinstance(value, bool) and not isinstance(value, Pointer):
+                value = Pointer(raw_address=value)
 
             # Track the type being used for this variable
             if slot.used_types is None:
@@ -267,14 +350,39 @@ class MemoryManager:
             # as a warning so the mismatch is still visible when running with --w.
             if bypass_type_check:
                 if "," not in normalized_type:
-                    if normalized_type == "int" and isinstance(value, float) and not value.is_integer():
-                        print_warning(
-                            f"Assigned float with fractional part to '{name}' (declared '{slot.type_name}') "
-                            f"through a pointer; a direct assignment would raise TypeError",
-                            line=slot.defined_line,
-                        )
+                    if normalized_type == "int" and isinstance(value, float):
+                        if not value.is_integer():
+                            print_warning(
+                                f"Assigned float with fractional part to '{name}' (declared '{slot.type_name}') "
+                                f"through a pointer; a direct assignment would raise TypeError",
+                                line=slot.defined_line,
+                            )
+                        else:
+                            target_bits = _effective_numeric_bits(slot.max_size)
+                            source_eff_bits = _effective_numeric_bits(source_bits)
+                            if target_bits != source_eff_bits:
+                                # Bit widths differ: same rule as a direct assignment, but through
+                                # a pointer it's a warning, not a TypeError — the float is left as-is
+                                # (never silently coerced to int here) so the value stored still
+                                # matches what was actually written.
+                                print_warning(
+                                    f"Assigned a {source_eff_bits}-bit float to '{name}' (declared "
+                                    f"'int[{target_bits}]') through a pointer; a direct assignment would "
+                                    f"raise TypeError (bit widths differ)",
+                                    line=slot.defined_line,
+                                )
                     elif normalized_type == "float" and isinstance(value, int):
-                        value = float(value)
+                        target_bits = _effective_numeric_bits(slot.max_size)
+                        source_eff_bits = _effective_numeric_bits(source_bits)
+                        if target_bits == source_eff_bits:
+                            value = float(value)
+                        else:
+                            print_warning(
+                                f"Assigned a {source_eff_bits}-bit int to '{name}' (declared "
+                                f"'float[{target_bits}]') through a pointer; a direct assignment would "
+                                f"raise TypeError (bit widths differ)",
+                                line=slot.defined_line,
+                            )
                 if not self._type_matches(normalized_type, value):
                     print_warning(
                         f"Assigned {type(value).__name__} to '{name}' (declared '{slot.type_name}') through a "
@@ -299,14 +407,33 @@ class MemoryManager:
                             line=slot.defined_line,
                         )
             else:
-                # Intentar coerción automática entre int y float para asignaciones
+                # Intentar coerción automática entre int y float para asignaciones. Same
+                # bit-width-matching rule as allocate() (see comment there): a mismatch
+                # between the target's declared width and the source's own declared width
+                # (both default to 64 when unspecified) is a hard TypeError.
                 if "," not in normalized_type:
                     if normalized_type == "int" and isinstance(value, float):
+                        target_bits = _effective_numeric_bits(slot.max_size)
+                        source_eff_bits = _effective_numeric_bits(source_bits)
+                        if target_bits != source_eff_bits:
+                            raise TypeError(
+                                f"Cannot implicitly convert a {source_eff_bits}-bit float to "
+                                f"int[{target_bits}] for '{name}': bit widths differ (use matching "
+                                f"widths, e.g. int[{source_eff_bits}], or convert explicitly)."
+                            )
                         if value.is_integer():
                             value = int(value)
                         else:
                             raise TypeError(f"Cannot assign float with fractional part to {name}: {slot.type_name}")
                     if normalized_type == "float" and isinstance(value, int):
+                        target_bits = _effective_numeric_bits(slot.max_size)
+                        source_eff_bits = _effective_numeric_bits(source_bits)
+                        if target_bits != source_eff_bits:
+                            raise TypeError(
+                                f"Cannot implicitly convert a {source_eff_bits}-bit int to "
+                                f"float[{target_bits}] for '{name}': bit widths differ (use matching "
+                                f"widths, e.g. float[{source_eff_bits}], or convert explicitly)."
+                            )
                         value = float(value)
                 if not self._type_matches(normalized_type, value):
                     raise TypeError(
@@ -330,7 +457,10 @@ class MemoryManager:
 
 
         if self.parent is not None and self.parent.has(name):
-            self.parent.assign(name, value, type_name)
+            # Forward bypass_type_check/source_bits too — without this, a pointer to a
+            # variable declared in an outer scope would silently lose the "warn instead
+            # of error" leniency the moment the write crossed a scope boundary.
+            self.parent.assign(name, value, type_name, bypass_type_check=bypass_type_check, source_bits=source_bits)
             return
 
         raise NameError(f"Variable not declared: {name}")
@@ -352,6 +482,18 @@ class MemoryManager:
 
     def has_local(self, name: str) -> bool:
         return name in self._slots
+
+    def get_slot(self, name: str) -> "MemorySlot | None":
+        """Walk the parent-scope chain and return the raw MemorySlot (not just its
+        value) for `name`, or None if it isn't declared anywhere visible. Used to
+        look up a source variable's own declared int[N]/float[N] width for the
+        coercion-matching rule in allocate()/assign() — get()/has() only expose the
+        value, not the slot metadata."""
+        if name in self._slots:
+            return self._slots[name]
+        if self.parent is not None:
+            return self.parent.get_slot(name)
+        return None
 
     def release(self, name: str) -> None:
         if name in self._slots:
@@ -418,7 +560,9 @@ class MemoryManager:
         """Enums are always represented as plain ints internally (see EnumDefinition).
         A value matches an enum-typed annotation when it is one of that enum's own
         declared members — not just any int — so mixing values between unrelated
-        enums (or plain ints) is still caught."""
+        enums (or plain ints) is still caught. The implicit `.null` sentinel also
+        counts as a match (e.g. `var x: items = items.null` is valid) even though it's
+        excluded from iteration/`in` (see EnumDefinition.null_value)."""
         enum_def = self._lookup_enum_definition(enum_name)
         if enum_def is None:
             return False
@@ -426,7 +570,7 @@ class MemoryManager:
             return False
         if not isinstance(value, int):
             return False
-        return value in enum_def.values.values()
+        return value == enum_def.null_value or value in enum_def.values.values()
 
     def _validate_element_type_spec(self, element_type: str) -> None:
         """Ensure every non-primitive name in an array/dict element-type annotation
@@ -519,6 +663,31 @@ class MemoryManager:
                 raise ValueError(
                     f"Dict has {len(value)} entries but the declared limit is {max_size}. "
                     f"Use dict[...][{len(value)}] or larger to fit this value."
+                )
+        elif type_name == "int" and isinstance(value, int) and not isinstance(value, bool):
+            # bool is technically an int subclass in Python; int[N]-annotated slots
+            # never actually hold bools (that would be a "bool" declared type instead),
+            # but guard anyway rather than mis-range-check a stray True/False.
+            low, high = _INT_BIT_RANGES[max_size]
+            if not (low <= value <= high):
+                suggestion = _smallest_int_bits_for(value)
+                hint = (
+                    f"Use int[{suggestion}] or larger to fit this value."
+                    if suggestion is not None
+                    else "This value doesn't fit any supported int width (max is int[64])."
+                )
+                raise ValueError(
+                    f"Value {value} does not fit in a signed {max_size}-bit int "
+                    f"(range {low}..{high}). {hint}"
+                )
+        elif type_name == "float" and isinstance(value, float):
+            fmt_code = _FLOAT_STRUCT_CODE[max_size]
+            try:
+                struct.pack(f"<{fmt_code}", value)
+            except OverflowError:
+                raise ValueError(
+                    f"Value {value} is too large in magnitude for a {max_size}-bit float. "
+                    f"Use float[64] (or a wider width) to fit this value."
                 )
 
     def _validate_element_types(self, type_name: str, value: Value, element_type: str) -> None:
@@ -783,7 +952,7 @@ class FunctionDefinition:
     # access to symbols from its OWN file (e.g. another `@from` it did internally) even when
     # called later from a completely different file's scope.
 
-    def call(self, args: list[Value], parent_memory: MemoryManager, current_dir: Path, source_path: Path | None = None, bound_self: Value = _NO_SELF) -> Value:
+    def call(self, args: list[Value], parent_memory: MemoryManager, current_dir: Path, source_path: Path | None = None, bound_self: Value = _NO_SELF, arg_source_bits: list[int | None] | None = None) -> Value:
         source_path = source_path or self.source_path
 
         # Resolve the effective parent scope. Normally this is just `parent_memory` (the
@@ -816,9 +985,14 @@ class FunctionDefinition:
         #                                 _bind_self_scope / class_memory), so declared params
         #                                 map 1:1 to the values the caller passes.
         effective_args = args
+        effective_arg_source_bits = arg_source_bits
         if bound_self is not _NO_SELF:
             if first_param_name == "self":
                 effective_args = [bound_self] + list(args)
+                # bound_self has no source expression of its own (it's injected, not
+                # passed positionally by the caller) — shift arg_source_bits to match.
+                if arg_source_bits is not None:
+                    effective_arg_source_bits = [None] + list(arg_source_bits)
             # else: instance stays reachable only via parent_memory's "self" scope binding.
 
         for index, param in enumerate(self.params):
@@ -845,7 +1019,12 @@ class FunctionDefinition:
                     target_type = infer_type(value)
                 else:
                     target_type = p_base
-                local_memory.allocate(param_name, target_type, value, max_size=p_max_size, element_type=p_element_type)
+                param_source_bits = (
+                    effective_arg_source_bits[index]
+                    if effective_arg_source_bits and index < len(effective_arg_source_bits)
+                    else None
+                )
+                local_memory.allocate(param_name, target_type, value, max_size=p_max_size, element_type=p_element_type, source_bits=param_source_bits)
             else:
                 # No argument passed: preserve the DECLARED type (not "any") so that
                 # `$param is NULL` and later assignments still respect the annotation.
@@ -908,9 +1087,22 @@ class FunctionDefinition:
                         self.return_type, ret_val, local_memory,
                         context=f"Function '{self.name}': return value"
                     )
-        return ret_val
 
-        # Unused local variable warnings
+        # Unused local variable warnings — this used to sit AFTER an unconditional
+        # `return ret_val` a few lines above (making it, and the release call that
+        # followed it, permanently unreachable dead code: every function call fell
+        # through the return before either one ever ran). Moved here so this actually
+        # fires, mirroring the equivalent check emit_post_execution_warnings() already
+        # does at global scope.
+        #
+        # The other half of that dead code — releasing local variables from memory at
+        # the end of the call — is deliberately NOT restored here: local_memory itself
+        # already gets garbage-collected once nothing references it anymore (the normal
+        # case), and a script that returns a pointer into its own locals (`return
+        # $$local_var`, a getter/closure-style pattern) currently keeps working because
+        # nothing ever explicitly invalidates that slot. Actually running the release
+        # would make that pattern dangling on every call — a real behavior change this
+        # fix intentionally avoids without your go-ahead either way.
         if WARNINGS:
             for slot_name, slot in local_memory._slots.items():
                 if slot_name.startswith("_"):
@@ -923,12 +1115,7 @@ class FunctionDefinition:
                         line=slot.defined_line,
                     )
 
-        # Liberar variables locales al final
-        local_memory.release_block_variables(set(local_memory._slots.keys()))
-
-        if self.return_type == "NULL":
-            return None
-        return None
+        return ret_val
 
 
 @dataclass
@@ -1038,6 +1225,13 @@ class EnumDefinition:
     name: str
     values: dict[str, Any]
     source_path: Path | None = None
+    # Every enum implicitly has a `.null` member — a sentinel meaning "nothing from
+    # this enumeration has been stored yet". It's kept OUTSIDE `values` on purpose:
+    # `for i in $enum` and `x in $enum` only ever see the enum's real, declared
+    # members (see execute_for()/ast.Compare's ast.In handling), never this sentinel.
+    # -1 is always safe: real members are assigned 0, 1, 2... in declaration order
+    # (see define_enum_line()), so it can never collide with an actual value.
+    null_value: int = -1
 
 
 class EventDefinition:
@@ -1140,12 +1334,25 @@ class Pointer:
     attempting either through `.value = ...`/`.set()` raises. Targets declared with
     #reserved can never be mutated through a pointer, protecting them from being changed
     indirectly by other scripts that merely got a hold of the reference.
+
+    Raw address mode (`var p: ptr = 0x7fff5fbff80c`): a bare integer literal assigned to
+    a `ptr`-typed slot builds a Pointer with `raw_address` instead of `target` (see
+    MemoryManager.allocate()/assign()). It shares the exact same public surface above,
+    but doesn't reference any actual script value — this interpreter deliberately never
+    dereferences an arbitrary process address (there is no safe way to do that from a
+    tree-walking Python interpreter without ctypes-level memory access, which risks
+    crashing the process or worse). So `.ref`/`.name`/`.is_callable`/`.is_mutable` all
+    work (they only report on the address itself), while `.value`/`.set()`/`.call()`
+    raise a clear error explaining why.
     """
 
-    def __init__(self, target: str, memory_manager: MemoryManager, current_dir: Path) -> None:
-        self._target = target.strip()
+    def __init__(self, target: str | None = None, memory_manager: MemoryManager | None = None, current_dir: Path | None = None, raw_address: int | None = None) -> None:
+        if raw_address is None and target is None:
+            raise ValueError("Pointer requires either a target expression or a raw_address")
+        self._target = target.strip() if target is not None else None
         self._memory_manager = memory_manager
         self._current_dir = current_dir
+        self._raw_address = raw_address
 
     # ---- internal resolution -------------------------------------------------
 
@@ -1154,6 +1361,12 @@ class Pointer:
         evaluate_expression(), this is allowed to return a raw FunctionDefinition or
         ClassDefinition: the Pointer itself is the simplified, safe handle a script gets
         instead of that internal object."""
+        if self._raw_address is not None:
+            raise TypeError(
+                f"Raw address pointer (0x{self._raw_address:x}) has no script value to read — "
+                f"it was built from a bare address, not a '$$name' reference. Only .ref, "
+                f".name, .is_callable and .is_mutable are meaningful for it."
+            )
         expression = replace_pointer_syntax(self._target)
         expression = re.sub(r"\$(?=[A-Za-z_])", "", expression)
         parsed_body = parse_cached_expression(expression)
@@ -1162,8 +1375,9 @@ class Pointer:
     def _resolve_slot(self) -> "MemorySlot | None":
         """The MemorySlot backing this pointer, when the target is a bare identifier
         (`$$name`). Dotted/indexed targets (`$$self.hp`, `$$arr[0]`) don't correspond to
-        a single named slot, so this returns None for those."""
-        if not is_valid_identifier(self._target):
+        a single named slot, so this returns None for those (as does a raw address, which
+        has no target expression at all)."""
+        if self._raw_address is not None or not is_valid_identifier(self._target):
             return None
         mgr: MemoryManager | None = self._memory_manager
         while mgr is not None:
@@ -1173,15 +1387,20 @@ class Pointer:
         return None
 
     def _kind(self) -> str:
-        """'function' | 'class' | 'constant' | 'variable' — used to decide what a
-        pointer is allowed to do and to build clear error messages."""
+        """'function' | 'class' | 'constant' | 'variable' | 'address' — used to decide
+        what a pointer is allowed to do and to build clear error messages. A slot
+        declared #inmutable reads as 'variable' here (not 'constant'): it behaves like a
+        const for direct `$name = ...` writes, but a pointer is explicitly allowed to
+        mutate it (see MemorySlot.mutable_via_pointer / Pointer.set())."""
+        if self._raw_address is not None:
+            return "address"
         slot = self._resolve_slot()
         val = slot.value if slot is not None else self._raw()
         if isinstance(val, FunctionDefinition):
             return "function"
         if isinstance(val, ClassDefinition):
             return "class"
-        if slot is not None and slot.immutable:
+        if slot is not None and slot.immutable and not slot.mutable_via_pointer:
             return "constant"
         return "variable"
 
@@ -1190,22 +1409,36 @@ class Pointer:
     def get(self) -> Value:
         return self._raw()
 
-    def set(self, new_value: Value) -> None:
+    def set(self, new_value: Value, source_bits: int | None = None) -> None:
+        if self._raw_address is not None:
+            raise TypeError(
+                f"Cannot assign through a raw address pointer (0x{self._raw_address:x}): "
+                f"it doesn't reference a script value."
+            )
         kind = self._kind()
         if kind in ("function", "class"):
             raise TypeError(f"Cannot assign through a pointer to a {kind} ('{self.name}')")
         slot = self._resolve_slot()
-        if slot is not None and slot.immutable:
+        if slot is not None and slot.immutable and not slot.mutable_via_pointer:
             raise TypeError(f"Cannot assign through a pointer to a constant ('{self.name}')")
         if slot is not None and slot.is_reserved:
             raise AttributeError(f"Cannot change '{self.name}' through a pointer: it is declared #reserved")
         # Unlike a normal `$name = value` assignment, writing through a pointer accepts any
         # value type — a mismatch against the target's declared type is reported as a
         # warning (via print_warning, shown with --w) rather than rejected with TypeError.
-        assign_target_expression(self._target, new_value, self._memory_manager, self._current_dir, bypass_type_check=True)
+        # `source_bits` (when the caller can supply it — see assign_to_variable's
+        # Pointer-aware `.value = ...` handling) lets the int<->float bit-width-mismatch
+        # warning below be as specific as a direct assignment's error would be, instead of
+        # falling back to the generic type-mismatch warning.
+        assign_target_expression(self._target, new_value, self._memory_manager, self._current_dir, bypass_type_check=True, source_bits=source_bits)
 
     @property
     def value(self) -> Value:
+        if self._raw_address is not None:
+            raise TypeError(
+                f"Raw address pointer (0x{self._raw_address:x}) has no '.value': it doesn't "
+                f"reference a script variable or constant."
+            )
         kind = self._kind()
         if kind in ("function", "class"):
             raise TypeError(
@@ -1223,6 +1456,8 @@ class Pointer:
         arguments it declares. Always used with explicit parentheses — `ptr.call()`,
         `ptr.call(1, 2)` — same as calling the function/class directly by name would;
         bare `ptr.call` (no parentheses) just returns the callable without invoking it."""
+        if self._raw_address is not None:
+            raise TypeError(f"Raw address pointer (0x{self._raw_address:x}) is not callable")
         target_value = self._raw()
         if isinstance(target_value, FunctionDefinition):
             return target_value.call(list(args), self._memory_manager, self._current_dir, source_path=target_value.source_path)
@@ -1234,15 +1469,21 @@ class Pointer:
 
     @property
     def name(self) -> str:
+        if self._raw_address is not None:
+            return f"0x{self._raw_address:x}"
         slot = self._resolve_slot()
         return slot.name if slot is not None else self._target
 
     @property
     def is_callable(self) -> bool:
+        if self._raw_address is not None:
+            return False
         return self._kind() in ("function", "class")
 
     @property
     def is_mutable(self) -> bool:
+        if self._raw_address is not None:
+            return False
         if self._kind() in ("function", "class", "constant"):
             return False
         slot = self._resolve_slot()
@@ -1252,20 +1493,28 @@ class Pointer:
 
     @property
     def size(self) -> int:
+        if self._raw_address is not None:
+            # The pointer's OWN width (a native address on this platform), not the size
+            # of whatever it points to — that's unknowable without a real backing value.
+            return struct.calcsize("P")
         return sys.getsizeof(self._raw())
 
     @property
     def ref(self) -> int:
+        if self._raw_address is not None:
+            return self._raw_address
         return id(self._raw())
 
     def __repr__(self) -> str:
+        if self._raw_address is not None:
+            return f"<Pointer -> 0x{self._raw_address:x} (raw address)>"
         return f"<Pointer -> {self.name} ({self._kind()})>"
 
 
-def assign_parsed_target(parsed: ast.expr, value: Value, memory_manager: MemoryManager, current_dir: Path, bypass_type_check: bool = False) -> None:
+def assign_parsed_target(parsed: ast.expr, value: Value, memory_manager: MemoryManager, current_dir: Path, bypass_type_check: bool = False, source_bits: int | None = None) -> None:
     if isinstance(parsed, ast.Name):
         try:
-            memory_manager.assign(parsed.id, value, bypass_type_check=bypass_type_check)
+            memory_manager.assign(parsed.id, value, bypass_type_check=bypass_type_check, source_bits=source_bits)
         except NameError:
             if value is None:
                 return
@@ -1309,12 +1558,12 @@ def assign_parsed_target(parsed: ast.expr, value: Value, memory_manager: MemoryM
     raise SyntaxError(f"Cannot assign to target: {ast.dump(parsed)}")
 
 
-def assign_target_expression(target: str, value: Value, memory_manager: MemoryManager, current_dir: Path, bypass_type_check: bool = False) -> None:
+def assign_target_expression(target: str, value: Value, memory_manager: MemoryManager, current_dir: Path, bypass_type_check: bool = False, source_bits: int | None = None) -> None:
     expression = target.strip()
     expression = replace_pointer_syntax(expression)
     expression = re.sub(r"\$(?=[A-Za-z_])", "", expression)
     parsed = parse_cached_expression(expression)
-    assign_parsed_target(parsed, value, memory_manager, current_dir, bypass_type_check=bypass_type_check)
+    assign_parsed_target(parsed, value, memory_manager, current_dir, bypass_type_check=bypass_type_check, source_bits=source_bits)
 
 
 def collect_block(lines: list[str], start_index: int) -> tuple[list[str], int]:
@@ -1329,8 +1578,11 @@ def collect_block(lines: list[str], start_index: int) -> tuple[list[str], int]:
         # Strip a leading #reserved tag only for the purpose of recognizing block-opening
         # keywords (e.g. `#reserved func foo()` still opens a block like `func foo()` would).
         depth_probe = stripped
-        while depth_probe.startswith("#reserved"):
-            depth_probe = depth_probe[len("#reserved"):].strip()
+        while depth_probe.startswith("#reserved") or depth_probe.startswith("#public"):
+            if depth_probe.startswith("#reserved"):
+                depth_probe = depth_probe[len("#reserved"):].strip()
+            else:
+                depth_probe = depth_probe[len("#public"):].strip()
         if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ", "match ")) or depth_probe == "try":
             depth += 1
         elif stripped == "end":
@@ -1354,8 +1606,11 @@ def collect_if_group(lines: list[str], start_index: int) -> tuple[list[tuple[str
             i += 1
             continue
         depth_probe = stripped
-        while depth_probe.startswith("#reserved"):
-            depth_probe = depth_probe[len("#reserved"):].strip()
+        while depth_probe.startswith("#reserved") or depth_probe.startswith("#public"):
+            if depth_probe.startswith("#reserved"):
+                depth_probe = depth_probe[len("#reserved"):].strip()
+            else:
+                depth_probe = depth_probe[len("#public"):].strip()
         if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ", "match ")) or depth_probe == "try":
             depth += 1
         elif stripped == "end":
@@ -1392,8 +1647,11 @@ def collect_try_block(lines: list[str], start_index: int) -> tuple[list[str], li
             i += 1
             continue
         depth_probe = stripped
-        while depth_probe.startswith("#reserved"):
-            depth_probe = depth_probe[len("#reserved"):].strip()
+        while depth_probe.startswith("#reserved") or depth_probe.startswith("#public"):
+            if depth_probe.startswith("#reserved"):
+                depth_probe = depth_probe[len("#reserved"):].strip()
+            else:
+                depth_probe = depth_probe[len("#public"):].strip()
         if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ", "match ")) or depth_probe == "try":
             depth += 1
         elif depth == 0 and stripped in ("catch", "except"):
@@ -1483,8 +1741,11 @@ def collect_match_block(lines: list[str], start_index: int) -> tuple[str, list[t
             i += 1
             continue
         depth_probe = stripped
-        while depth_probe.startswith("#reserved"):
-            depth_probe = depth_probe[len("#reserved"):].strip()
+        while depth_probe.startswith("#reserved") or depth_probe.startswith("#public"):
+            if depth_probe.startswith("#reserved"):
+                depth_probe = depth_probe[len("#reserved"):].strip()
+            else:
+                depth_probe = depth_probe[len("#public"):].strip()
         if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ", "match ")) or depth_probe == "try":
             depth += 1
         elif stripped == "end":
@@ -1589,7 +1850,12 @@ def evaluate_ast(node: ast.AST, memory_manager: MemoryManager, current_dir: Path
                 if left_cmp == right_cmp:
                     return False
             elif isinstance(operator, ast.In):
-                if left not in right:
+                if isinstance(right, EnumDefinition):
+                    # Same rule as for-loop iteration: membership only checks the enum's
+                    # real declared members, never the implicit `.null` sentinel.
+                    if left not in right.values.values():
+                        return False
+                elif left not in right:
                     return False
             elif isinstance(operator, ast.Is):
                 # 'is' in user language means value-equality (same as ==)
@@ -1621,12 +1887,25 @@ def evaluate_ast(node: ast.AST, memory_manager: MemoryManager, current_dir: Path
             return Pointer(node.args[0].value, memory_manager, current_dir)
         func = evaluate_ast(node.func, memory_manager, current_dir)
         args = [evaluate_ast(arg, memory_manager, current_dir) for arg in node.args]
+        # Keyword arguments (e.g. `end=""`, `flush=true`) only make sense for native
+        # Python callables (built-ins like print). FunctionDefinition/ClassDefinition
+        # calls use GybinScript's own positional calling convention, so kwargs are
+        # only forwarded on the `callable(func)` native path below.
+        kwargs = {
+            kw.arg: evaluate_ast(kw.value, memory_manager, current_dir)
+            for kw in node.keywords if kw.arg is not None
+        }
         if isinstance(func, FunctionDefinition):
-            return func.call(args, memory_manager, current_dir, source_path=func.source_path)
+            # Per-argument source bit width (see _numeric_bits_from_node): lets a call like
+            # `sum($x, $y)` correctly match against int[16]/float[16]-annotated parameters
+            # when $x/$y are themselves declared with that width, instead of every call
+            # argument being treated as an untraceable (implicit 64-bit) value.
+            arg_source_bits = [_numeric_bits_from_node(arg, memory_manager) for arg in node.args]
+            return func.call(args, memory_manager, current_dir, source_path=func.source_path, arg_source_bits=arg_source_bits)
         if isinstance(func, ClassDefinition):
             return func.instantiate(args, memory_manager, current_dir, source_path=func.source_path)
         if callable(func):
-            return func(*args)
+            return func(*args, **kwargs)
         raise TypeError(f"Object {func!r} is not callable")
     if isinstance(node, ast.List):
         return [evaluate_ast(elt, memory_manager, current_dir) for elt in node.elts]
@@ -1645,6 +1924,8 @@ def evaluate_ast(node: ast.AST, memory_manager: MemoryManager, current_dir: Path
         value = evaluate_ast(node.value, memory_manager, current_dir)
         attr = node.attr
         if isinstance(value, EnumDefinition):
+            if attr == "null":
+                return value.null_value
             if attr in value.values:
                 return value.values[attr]
             raise AttributeError(f"Enum '{value.name}' has no member '{attr}'")
@@ -1750,7 +2031,39 @@ def evaluate_ast(node: ast.AST, memory_manager: MemoryManager, current_dir: Path
                 return attr_val
             raise AttributeError(f"Object has no member '{attr}'")
         return getattr(value, node.attr)
+    if isinstance(node, ast.JoinedStr):
+        # f-strings: `$` on identifiers inside the {...} parts is already stripped by the
+        # `$`-removal regex in evaluate_expression() before this ever reaches ast.parse
+        # (it runs over the whole transformed source, quotes included), so
+        # `f"\r{$_format_time()}/5"` arrives here as an ordinary Python f-string AST —
+        # just walk its parts.
+        pieces: list[str] = []
+        for part in node.values:
+            if isinstance(part, ast.Constant):
+                pieces.append(str(part.value))
+            elif isinstance(part, ast.FormattedValue):
+                pieces.append(_evaluate_formatted_value(part, memory_manager, current_dir))
+            else:
+                raise SyntaxError(f"Unsupported f-string segment: {ast.dump(part)}")
+        return "".join(pieces)
     raise SyntaxError(f"Expression not supported: {ast.dump(node)}")
+
+
+def _evaluate_formatted_value(node: ast.FormattedValue, memory_manager: MemoryManager, current_dir: Path) -> str:
+    """Evaluate a single `{expr}` / `{expr!r}` / `{expr:spec}` segment of an f-string."""
+    value = evaluate_ast(node.value, memory_manager, current_dir)
+    if node.conversion == ord("r"):
+        value = repr(value)
+    elif node.conversion == ord("s"):
+        value = str(value)
+    elif node.conversion == ord("a"):
+        value = ascii(value)
+    format_spec = ""
+    if node.format_spec is not None:
+        # format_spec is itself a JoinedStr (it can embed nested {expr} too, e.g.
+        # f"{x:{width}}") so this recurses back into the branch above.
+        format_spec = evaluate_ast(node.format_spec, memory_manager, current_dir)
+    return format(value, format_spec)
 
 
 def parse_cached_expression(expression: str) -> ast.expr:
@@ -1763,6 +2076,41 @@ def parse_cached_expression(expression: str) -> ast.expr:
         raise SyntaxError(f"Invalid expression: {expression}") from exc
     EXPRESSION_AST_CACHE[expression] = parsed.body
     return parsed.body
+
+
+def _numeric_bits_from_node(node: ast.expr, memory_manager: MemoryManager) -> int | None:
+    """Core of the source-width lookup: given an already-parsed expression node, if it's
+    nothing more than a bare reference to a declared int/float variable, return that
+    variable's own declared width (or 64 if it wasn't given one explicitly). Anything
+    else (literal, computed expression, call, subscript, attribute...) returns None,
+    treated by callers the same as an explicit 64 (the language's implicit default)."""
+    if not isinstance(node, ast.Name):
+        return None
+    name = node.id
+    if name.lower() in ("null", "true", "false"):
+        return None
+    slot = memory_manager.get_slot(name)
+    if slot is None or slot.type_name not in ("int", "float"):
+        return None
+    return slot.max_size if slot.max_size is not None else 64
+
+
+def _infer_source_numeric_bits(expression: str, memory_manager: MemoryManager) -> int | None:
+    """Text-based entry point for _numeric_bits_from_node: parses `expression` the same
+    way evaluate_expression() does ($-stripping, pointer syntax) and delegates. Used by
+    var/const declarations and plain `$name = $other` reassignment, where only the raw
+    expression text is available (see the AST-node entry point above for call arguments,
+    where a parsed node is already on hand)."""
+    text = expression.strip()
+    if not text:
+        return None
+    try:
+        transformed = replace_pointer_syntax(text)
+        transformed = re.sub(r"\$(?=[A-Za-z_])", "", transformed)
+        parsed = parse_cached_expression(transformed)
+    except SyntaxError:
+        return None
+    return _numeric_bits_from_node(parsed, memory_manager)
 
 
 def evaluate_expression(expression: str, memory_manager: MemoryManager, current_dir: Path) -> Value:
@@ -1828,8 +2176,15 @@ def evaluate_dollar_expression(token: str, memory_manager: MemoryManager, curren
 def assign_variable(source: str, memory_manager: MemoryManager, current_dir: Path) -> None:
     is_ready = False
     is_reserved = False
+    is_inmutable = False
     source = source.strip()
-    # Accept #reserved and #onready in either order, each optional
+    # Accept #onready, #reserved, #inmutable and #public in any order, each optional.
+    # #inmutable: behaves like a const for direct `$name = ...` (immutable=True), but
+    # unlike a real const it CAN still be changed indirectly through a pointer — see
+    # MemorySlot.mutable_via_pointer, Pointer.set()/._kind(), and MemoryManager.assign().
+    # #public: pure readability counterpart to #reserved — a member is public by
+    # default already, so this sets nothing; it's only recognized here so it's
+    # consumed as a modifier instead of being mistaken for part of the annotation.
     while True:
         if source.startswith("#onready"):
             is_ready = True
@@ -1837,6 +2192,11 @@ def assign_variable(source: str, memory_manager: MemoryManager, current_dir: Pat
         elif source.startswith("#reserved"):
             is_reserved = True
             source = source[len("#reserved"):].strip()
+        elif source.startswith("#inmutable"):
+            is_inmutable = True
+            source = source[len("#inmutable"):].strip()
+        elif source.startswith("#public"):
+            source = source[len("#public"):].strip()
         else:
             break
 
@@ -1870,10 +2230,13 @@ def assign_variable(source: str, memory_manager: MemoryManager, current_dir: Pat
     if value is None and not memory_manager.has(name):
         return
 
+    # Only matters when base_type ends up "int"/"float" and the value needs
+    # int<->float coercion; harmless (ignored) otherwise. See allocate()/assign().
+    source_bits = _infer_source_numeric_bits(value_text, memory_manager)
     if name in memory_manager._slots and not is_ready:
-        memory_manager.assign(name, value, base_type)
+        memory_manager.assign(name, value, base_type, source_bits=source_bits)
     else:
-        memory_manager.allocate(name, base_type, value, max_size=max_size, element_type=element_type, is_ready=is_ready, defined_line=_CURRENT_LINE, is_reserved=is_reserved)
+        memory_manager.allocate(name, base_type, value, immutable=is_inmutable, max_size=max_size, element_type=element_type, is_ready=is_ready, defined_line=_CURRENT_LINE, is_reserved=is_reserved, source_bits=source_bits, mutable_via_pointer=is_inmutable)
 
 
 def assign_constant(source: str, memory_manager: MemoryManager, current_dir: Path) -> None:
@@ -1919,13 +2282,18 @@ def assign_constant(source: str, memory_manager: MemoryManager, current_dir: Pat
     if value is None and not memory_manager.has(name):
         return
 
-    memory_manager.allocate(name, base_type, value, immutable=True, max_size=max_size, element_type=element_type, is_ready=is_ready, defined_line=_CURRENT_LINE, is_reserved=is_reserved)
+    source_bits = _infer_source_numeric_bits(value_text, memory_manager)
+    memory_manager.allocate(name, base_type, value, immutable=True, max_size=max_size, element_type=element_type, is_ready=is_ready, defined_line=_CURRENT_LINE, is_reserved=is_reserved, source_bits=source_bits)
 
 
 def assign_to_variable(target: str, expression: str, memory_manager: MemoryManager, current_dir: Path) -> None:
     value = evaluate_expression(expression, memory_manager, current_dir)
+    # Source bit width for the int<->float coercion-matching rule (see allocate()/
+    # assign()): only meaningful when `expression` is a bare reference to a declared
+    # int/float variable — harmless/ignored otherwise (see _infer_source_numeric_bits).
+    source_bits = _infer_source_numeric_bits(expression, memory_manager)
     if target.startswith("$$"):
-        assign_target_expression(target[2:], value, memory_manager, current_dir)
+        assign_target_expression(target[2:], value, memory_manager, current_dir, source_bits=source_bits)
         return
     normalized_target = target[1:] if target.startswith("$") else target
     try:
@@ -1937,7 +2305,7 @@ def assign_to_variable(target: str, expression: str, memory_manager: MemoryManag
                 current.set(value)
                 return
         try:
-            memory_manager.assign(normalized_target, value)
+            memory_manager.assign(normalized_target, value, source_bits=source_bits)
             return
         except NameError:
             if value is None:
@@ -1956,7 +2324,7 @@ def assign_to_variable(target: str, expression: str, memory_manager: MemoryManag
                 current.set(value)
                 return
         try:
-            memory_manager.assign(parsed.id, value)
+            memory_manager.assign(parsed.id, value, source_bits=source_bits)
         except NameError:
             if value is None:
                 return
@@ -1989,10 +2357,18 @@ def assign_to_variable(target: str, expression: str, memory_manager: MemoryManag
             else:
                 container.setdefault("__fields__", {})[parsed.attr] = value
             return
+        if isinstance(container, Pointer) and parsed.attr == "value":
+            # `$p.value = expr`: go through .set() directly (instead of the property
+            # setter via setattr) so the source bit width traced above actually reaches
+            # the pointer write — it's what turns the bit-width mismatch warning from
+            # the generic "type mismatch" message into the specific "N-bit float/int
+            # through a pointer" one (see Pointer.set()/MemoryManager.assign()).
+            container.set(value, source_bits=source_bits)
+            return
         setattr(container, parsed.attr, value)
         return
 
-    memory_manager.assign(normalized_target, value)
+    memory_manager.assign(normalized_target, value, source_bits=source_bits)
 
 
 def assign_value_to_variable(target: str, value: Value, memory_manager: MemoryManager, current_dir: Path) -> None:
@@ -2219,12 +2595,20 @@ def execute_while(condition: str, body: list[str], memory_manager: MemoryManager
     try:
         while evaluate_condition(condition, memory_manager, current_dir):
             try:
-                execute_block(body, loop_memory, current_dir, trace=trace, source_path=source_path,
-                              line_offset=line_offset)
+                # 'loop' restarts THIS SAME pass through the body from the top, without
+                # going back to re-check the while condition — that's what actually makes
+                # it different from 'continue' (which does re-check the condition). The
+                # inner `while True` is what gives 'loop' somewhere to land that isn't
+                # the outer condition check.
+                while True:
+                    try:
+                        execute_block(body, loop_memory, current_dir, trace=trace, source_path=source_path,
+                                      line_offset=line_offset)
+                    except LoopSignal:
+                        continue
+                    break
             except ContinueSignal:
                 continue
-            except LoopSignal:
-                continue   # same as continue — restart from condition check
             except BreakSignal:
                 break
     finally:
@@ -2235,6 +2619,11 @@ def execute_for(target: str, source_expression: str, body: list[str], memory_man
     iterable = evaluate_expression(source_expression, memory_manager, current_dir)
     if isinstance(iterable, dict):
         iterator = list(iterable.keys())
+    elif isinstance(iterable, EnumDefinition):
+        # Declared members only, in declaration order — never the implicit `.null`
+        # sentinel (see EnumDefinition.null_value), since it doesn't represent an
+        # actual value stored from the enumeration.
+        iterator = list(iterable.values.values())
     elif isinstance(iterable, (list, tuple, range, str)):
         iterator = iterable
     elif hasattr(iterable, "__iter__"):
@@ -2270,12 +2659,19 @@ def execute_for(target: str, source_expression: str, body: list[str], memory_man
             else:
                 loop_memory.allocate(target, target_base, item)
             try:
-                execute_block(body, loop_memory, current_dir, trace=trace, source_path=source_path,
-                              line_offset=line_offset)
+                # 'loop' restarts THIS SAME pass through the body from the top, keeping
+                # the SAME item and without advancing to the next one — that's what
+                # actually makes it different from 'continue' (which moves on to the
+                # next item in the iterator).
+                while True:
+                    try:
+                        execute_block(body, loop_memory, current_dir, trace=trace, source_path=source_path,
+                                      line_offset=line_offset)
+                    except LoopSignal:
+                        continue
+                    break
             except ContinueSignal:
                 continue
-            except LoopSignal:
-                continue   # restart from next iteration (same as continue in for)
             except BreakSignal:
                 break
     finally:
@@ -2381,13 +2777,20 @@ def execute_flow_statement(line: str, memory_manager: MemoryManager, current_dir
 
 
 def execute_declaration_statement(line: str, memory_manager: MemoryManager, current_dir: Path) -> bool:
-    # Peek past optional #reserved/#onready tags (in either order) to find the real keyword.
+    # Peek past optional #reserved/#public/#onready/#inmutable tags (in any order) to
+    # find the real keyword. assign_variable()/assign_constant() re-parse these
+    # modifiers themselves from the original `line` below — this loop only exists so
+    # the "var "/"const " check isn't fooled by a leading tag it doesn't recognize.
     probe = line.strip()
     while True:
         if probe.startswith("#reserved"):
             probe = probe[len("#reserved"):].strip()
+        elif probe.startswith("#public"):
+            probe = probe[len("#public"):].strip()
         elif probe.startswith("#onready"):
             probe = probe[len("#onready"):].strip()
+        elif probe.startswith("#inmutable"):
+            probe = probe[len("#inmutable"):].strip()
         else:
             break
     if probe.startswith("var "):
@@ -2401,14 +2804,25 @@ def execute_declaration_statement(line: str, memory_manager: MemoryManager, curr
 
 def execute_import_statement(line: str, memory_manager: MemoryManager, current_dir: Path, importer_lines: list[str] | None = None) -> bool:
     if line.startswith("@use "):
-        include_path = line[len("@use "):].strip()
-        file_path = resolve_path(include_path, current_dir)
-        execute_use(file_path, memory_manager, importer_lines=importer_lines)
+        paths, alias = parse_use_statement(line)
+        for path_text in paths:
+            file_path = resolve_path(path_text, current_dir)
+            if alias is not None:
+                # `@use X @as Y` is just `@from X @as Y` under another name — both mean
+                # "load X, but keep its exposed symbols under one namespace instead of
+                # spilling them into this scope directly". See parse_use_statement()
+                # for why this only ever happens with exactly one path.
+                execute_from(file_path, alias, memory_manager, importer_lines=importer_lines)
+            else:
+                execute_use(file_path, memory_manager, importer_lines=importer_lines)
         return True
     if line.startswith("@from "):
-        include_path, alias = parse_from_alias_statement(line)
+        include_path, symbol_names, alias = parse_from_statement(line)
         file_path = resolve_path(include_path, current_dir)
-        execute_from(file_path, alias, memory_manager, importer_lines=importer_lines)
+        if symbol_names is not None:
+            execute_from_selective(file_path, symbol_names, alias, memory_manager, importer_lines=importer_lines)
+        else:
+            execute_from(file_path, alias, memory_manager, importer_lines=importer_lines)
         return True
     return False
 
@@ -2422,9 +2836,16 @@ def execute_definition_statement(
 ) -> int | None:
     is_reserved = False
     probe = line.strip()
-    while probe.startswith("#reserved"):
-        is_reserved = True
-        probe = probe[len("#reserved"):].strip()
+    while True:
+        if probe.startswith("#reserved"):
+            is_reserved = True
+            probe = probe[len("#reserved"):].strip()
+        elif probe.startswith("#public"):
+            # Pure readability counterpart to #reserved: a func/class is public by
+            # default already, so this sets nothing — just consumed as a modifier.
+            probe = probe[len("#public"):].strip()
+        else:
+            break
 
     if probe.startswith("func "):
         block, next_index = collect_block(lines, index)
@@ -2980,22 +3401,105 @@ def execute_use(file_path: Path, memory_manager: MemoryManager, importer_lines: 
         return
 
 
-def parse_from_alias_statement(line: str) -> tuple[str, str | None]:
+def parse_use_statement(line: str) -> tuple[list[str], str | None]:
+    """Parse `@use path[, path2, path3...] [@as alias]`.
+
+    Multiple comma-separated paths import several modules in one statement (each
+    still filtered by the usage-scanning heuristic, exactly like a single `@use`
+    always has been). `@as` is only allowed with exactly one path — a single alias
+    can't stand in for several unrelated modules at once; import them one per line
+    instead (`@use math @as mate` / `@use random @as rand`) if each needs its own name.
+    """
     parts = line.split()
-    if len(parts) < 2:
+    if len(parts) < 2 or parts[0] != "@use":
+        raise SyntaxError("Invalid @use statement")
+
+    as_index = parts.index("@as") if "@as" in parts else None
+    path_end = as_index if as_index is not None else len(parts)
+    path_text = " ".join(parts[1:path_end]).strip()
+    if not path_text:
+        raise SyntaxError("Invalid @use statement: missing path")
+
+    paths = [p.strip() for p in path_text.split(",") if p.strip()]
+    if not paths:
+        raise SyntaxError("Invalid @use statement: missing path")
+
+    alias: str | None = None
+    if as_index is not None:
+        if as_index + 1 >= len(parts):
+            raise SyntaxError("Invalid @use ... @as alias statement")
+        alias = parts[as_index + 1].strip()
+        if len(paths) > 1:
+            raise SyntaxError(
+                "Cannot use '@as' with multiple libraries in a single @use statement — "
+                "one alias can't represent more than one module. Import them one per "
+                "line instead, e.g. `@use math @as mate` / `@use random @as rand`."
+            )
+    return paths, alias
+
+
+def _parse_use_symbol_list(sym_text: str) -> list[str]:
+    """Parse the comma-separated `$$name` list in `@from X @use $$a, $$b`. Each entry
+    must use the `$$name` reference syntax (consistent with how the language already
+    marks 'a reference to a named symbol' everywhere else, e.g. $$target for pointers)
+    rather than a bare name, which would be ambiguous with a value reference."""
+    raw_names = [n.strip() for n in sym_text.split(",")]
+    symbol_names: list[str] = []
+    for raw in raw_names:
+        if not raw:
+            raise SyntaxError("Invalid @from ... @use statement: empty entry in symbol list")
+        if not raw.startswith("$$"):
+            raise SyntaxError(f"Invalid @from ... @use symbol '{raw}': expected '$$name' syntax")
+        name = raw[2:]
+        if not is_valid_identifier(name):
+            raise SyntaxError(f"Invalid @from ... @use symbol name: '{name}'")
+        symbol_names.append(name)
+    return symbol_names
+
+
+def parse_from_statement(line: str) -> tuple[str, list[str] | None, str | None]:
+    """Parse `@from path [@use $$sym[, $$sym2...]] [@as alias]`.
+
+    Returns (include_path, symbol_names, alias):
+      - symbol_names is None when no `@use` clause was given — behaves exactly like
+        before (pull in everything, filtered by the usage-scanning heuristic).
+      - symbol_names is a list when `@use $$a, $$b` was given — only those exact
+        symbols are loaded (see execute_from_selective), instead of running the whole
+        module and scanning for what got referenced.
+      - alias is None unless `@as name` was given; with `@use`, `@as` groups the
+        selected symbols under one namespace (`$alias.symbol`) instead of spilling
+        them directly into this scope — both are allowed together since they're all
+        coming from the one module named right after `@from`.
+    """
+    parts = line.split()
+    if len(parts) < 2 or parts[0] != "@from":
         raise SyntaxError("Invalid @from statement")
-    alias = None
-    if "@as" in parts:
-        as_index = parts.index("@as")
-        include_path = " ".join(parts[1:as_index]).strip()
+
+    use_index = parts.index("@use") if "@use" in parts else None
+    as_index = parts.index("@as") if "@as" in parts else None
+    if use_index is not None and as_index is not None and as_index < use_index:
+        raise SyntaxError("Invalid @from statement: '@as' must come after '@use'")
+
+    path_end = use_index if use_index is not None else (as_index if as_index is not None else len(parts))
+    include_path = " ".join(parts[1:path_end]).strip()
+    if not include_path:
+        raise SyntaxError("Invalid @from statement: missing path")
+
+    symbol_names: list[str] | None = None
+    if use_index is not None:
+        sym_end = as_index if as_index is not None else len(parts)
+        sym_text = " ".join(parts[use_index + 1:sym_end]).strip()
+        if not sym_text:
+            raise SyntaxError("Invalid @from ... @use statement: missing symbol list")
+        symbol_names = _parse_use_symbol_list(sym_text)
+
+    alias: str | None = None
+    if as_index is not None:
         if as_index + 1 >= len(parts):
             raise SyntaxError("Invalid @from ... @as alias statement")
         alias = parts[as_index + 1].strip()
-    else:
-        include_path = " ".join(parts[1:]).strip()
-    if not include_path:
-        raise SyntaxError("Invalid @from statement: missing path")
-    return include_path, alias
+
+    return include_path, symbol_names, alias
 
 
 def execute_from(file_path: Path, alias: str | None, memory_manager: MemoryManager, importer_lines: list[str] | None = None) -> None:
@@ -3050,6 +3554,68 @@ def execute_from(file_path: Path, alias: str | None, memory_manager: MemoryManag
         namespace = {"__source__": source, "__path__": str(file_path), "__lang__": ext.lstrip(".")}
         memory_manager.allocate(alias, "any", namespace)
         return
+
+
+def execute_from_selective(
+    file_path: Path,
+    symbol_names: list[str],
+    alias: str | None,
+    memory_manager: MemoryManager,
+    importer_lines: list[str] | None = None,
+) -> None:
+    """`@from path @use $$a, $$b [@as alias]`: load ONLY the named symbols, instead of
+    running/scanning the whole module like execute_use()/execute_from() do. This is
+    the memory-conscious alternative for a module with many symbols where a script
+    only ever needs a couple — the module still runs in full (a .gbn file is a
+    sequence of statements with no per-symbol laziness), but everything except the
+    exact names requested is dropped once it finishes, never copied into the
+    importer's own scope.
+
+    `importer_lines` is accepted for signature symmetry with execute_use/execute_from
+    but unused: there is nothing left to scan for usage when the import list is
+    already explicit.
+    """
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+    ext = file_path.suffix.lower()
+
+    if ext == f".{EXTFILE}":
+        temp_memory = MemoryManager(parent=memory_manager)
+        process_source_lines(read_lines(str(file_path)), temp_memory, file_path.parent, trace=False, source_path=file_path)
+        resolved: dict[str, Any] = {}
+        for name in symbol_names:
+            slot = temp_memory._slots.get(name)
+            if slot is None:
+                raise NameError(f"'{name}' not found in module '{file_path.name}'")
+            # Respect #reserved exactly like execute_use()/execute_from() do — an
+            # explicit `@use $$name` is still an external access, not an internal one.
+            if slot.is_reserved:
+                raise AttributeError(
+                    f"Cannot import '{name}' from '{file_path.name}': it is declared #reserved"
+                )
+            resolved[name] = slot.value
+    elif ext == ".py":
+        module = _load_python_module(file_path)
+        resolved = {}
+        for name in symbol_names:
+            try:
+                resolved[name] = getattr(module, name)
+            except AttributeError:
+                raise NameError(f"'{name}' not found in module '{file_path.name}'")
+    else:
+        raise TypeError(
+            f"Selective '@use $$name' import isn't supported for '{ext}' files (they have "
+            f"no named symbols to select) — use a plain @use/@from instead."
+        )
+
+    if alias is not None:
+        memory_manager.allocate(alias, "any", resolved)
+        return
+    for name, value in resolved.items():
+        try:
+            memory_manager.assign(name, value)
+        except NameError:
+            memory_manager.allocate(name, infer_type(value), value)
 
 
 def run_program(memory_manager: MemoryManager, current_dir: Path) -> None:

@@ -1,7 +1,7 @@
 -- Standar library
 
 class Engine
-  const VERSION: str[8] = "1.5.0"
+  const VERSION: str[8] = "1.6.0"
   const AUTHOR: str[10] = "Katsu Dev"
 end
 
@@ -102,9 +102,9 @@ class color
 		$self.g = $max($min($g, 0), 1.0)
 		$self.b = $max($min($b, 0), 1.0)
 
-		var result: array[float][4] = []
+		--var result: array[float][4] = []
 		if $a == NULL
-			$self.a = 0.0
+			$self.a = 1.0
 
 			--$result = [$r, $g, $b, $self.a]
 			--return $result

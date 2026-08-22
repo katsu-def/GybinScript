@@ -20,7 +20,7 @@ keys: list[str] = ["func", "class", "var",
                    "is", "or", "not", "and", "NULL",
                    "return", "end", "continue", "break", "loop", "try", "catch", "except",
                    "await", "pass", "@use", "@from", "@as", "run", "--", "!*", "#onready",
-                   "#reserved", "free", "expand_memory"]
+                   "#reserved", "#public", "#inmutable", "free", "expand_memory"]
 
 EXTFILE: str = "gbn"
 MAX_MEMORY_SLOTS: int = 1024

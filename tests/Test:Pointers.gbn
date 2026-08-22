@@ -9,6 +9,7 @@ $print($ref.value)
 $ref = 200
 $print($ref.value)
 
+var memory: ptr = 0x7fff5fbff80c
 
 func sum(a: int, b: int) -> int
 	return a + b
@@ -21,6 +22,7 @@ func init() -> NULL
 
 	var result: int = $landba.call(2, 4)
 	$print($result)
+	$print($memory)
 end
 	
 run

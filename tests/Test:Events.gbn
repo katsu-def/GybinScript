@@ -20,7 +20,6 @@ func dead() -> NULL
 
 end
 
-
 $player_is_dead.connect($$dead)
 
 

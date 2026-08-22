@@ -4,8 +4,9 @@
 @use time
 
 func init() -> NULL
-    $print($_format_time())
-    $pause()
+	while true
+    	$reprint($_format_time())
+    end
 end
 
 run

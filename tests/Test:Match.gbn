@@ -1,7 +1,7 @@
 -- Prueba de comportamiento de match y case
 
 enum state = {NORMAL, TIRED, DAMAGE, DIE, NULL}
-var current_state: state = 3
+var current_state: state = $state.null
 
 match $current_state
 	case 0 -- Los enums internamente se interpretan como números
@@ -18,4 +18,7 @@ match $current_state
 		
 	else
 		$print("Error")
+		for i in $state
+			$print($i)
+		end
 end

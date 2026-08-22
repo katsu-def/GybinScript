@@ -2,7 +2,7 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/katsu-def/GybinScript)
 
-> **Versión:** 1.5  
+> **Versión:** 1.6  
 > **Extensión de archivos:** `.gbn`  
 > **Intérprete:** `Core/Gybin` \ `/usr/bin/Gybin`
 > **Ejecución:** `Gybin (Dirección de archivo: Mi_script.gbn)`
@@ -122,6 +122,57 @@ $print($alive)
 $print($name)
 ```
 
+### Ancho de bits para `int` / `float`
+
+Ambos tipos numéricos usan 64 bits por defecto. En lugar de introducir nombres de tipo separados para anchos más pequeños, se reutiliza la misma sintaxis de tamaño `[N]` que ya usa `str` para elegir un ancho más angosto:
+
+```gbn
+var entero: int[16] = 1000       -- int con signo de 16 bits: -32768..32767
+var decimal: float[32] = 3.14    -- float de 32 bits (IEEE-754 precisión simple)
+var otro: float [32] = 2.71      -- también se acepta un espacio antes del corchete
+```
+
+| Tipo | Anchos válidos |
+|------|-----------------|
+| `int[N]` | 8, 16, 32, 64 |
+| `float[N]` | 16, 32, 64 |
+
+Un valor que no cabe en el ancho declarado es un error inmediato, con una sugerencia de un ancho que sí lo contendría:
+
+```gbn
+var pequeno: int[8] = 500  -- error: no cabe en un int con signo de 8 bits (rango -128..127). Usa int[16] o mayor.
+```
+
+**La coerción entre `int` y `float` requiere que los anchos coincidan.** Una conversión implícita int <-> float (ver "Coerciones automáticas" arriba) solo ocurre cuando ambos lados tienen el *mismo* ancho de bits declarado — o cuando ninguno de los dos especifica uno (ambos usan 64 por defecto):
+
+```gbn
+var flotante: float = 3.14
+var entero: int[32] = $flotante   -- Error: la coerción requiere anchos iguales (64 vs 32)
+
+var flotante32: float[32] = 3.14
+var entero32: int[32] = $flotante32  -- OK: ambos son de 32 bits
+```
+
+Esto aplica igual a constantes y a parámetros/tipos de retorno de funciones:
+
+```gbn
+func sum(a: int[16], b: int[16]) -> int[16]
+    return a + b
+end
+```
+
+Los tipos de elemento de `array`/`dict` nunca rastrean un ancho de bits específico — `array[int]` acepta valores `int` de cualquier ancho mezclados entre sí, ya que un contenedor no tiene una anotación de tipo por elemento propia. Escribir `array[int[16]]` se rechaza por ser ambiguo (no queda claro a qué elementos aplicaría); usa un `array[int]` simple en su lugar.
+
+### f-strings
+
+Los literales de cadena con prefijo `f` soportan interpolación `{expresión}`, incluyendo especificadores de formato y conversiones:
+
+```gbn
+var name: str = "Ana"
+$print(f"Hola {$name}!")
+$print(f"{3.14159:.2f}")   -- 3.14
+```
+
 ---
 
 ## 4. Variables y constantes
@@ -179,6 +230,28 @@ Cuando se usa también se evitan reasignaciones de un mismo valor.
 ```gbn
 #reserved var critico: bool = false
 ```
+
+### `#public`
+
+`#public` es la contraparte de `#reserved` en cuanto a legibilidad. No cambia nada — una variable, función o clase ya es pública por defecto — existe solo para poder declarar esa intención explícitamente en el código:
+
+```gbn
+#public var vida: int = 100
+```
+
+### `#inmutable`
+
+`#inmutable` se comporta como `const` para asignación directa — `$nombre = valor` lanza el mismo error que una constante — pero a diferencia de un `const` real, su valor **sí** puede cambiarse indirectamente a través de un [puntero](#15-punteros):
+
+```gbn
+#inmutable var x: int = 5
+$x = 10              -- error: 'x' es #inmutable
+
+var p: ptr = $$x
+$p.value = 99         -- OK — x ahora es 99
+```
+
+Un `const` verdadero permanece completamente bloqueado incluso a través de un puntero; `#inmutable` es la versión que permite esa única vía de escape deliberada.
 
 ### `NULL` como valor vacío
 
@@ -298,6 +371,18 @@ $saludar("Carlos")
 $print($multiply($result, 2))
 ```
 
+### Anchos de bits explícitos en parámetros y tipos de retorno
+
+`int[N]`/`float[N]` (ver [§3](#3-tipos-de-datos)) también funcionan en firmas de función:
+
+```gbn
+func sum(a: int[16], b: int[16]) -> int[16]
+    return $a + $b
+end
+```
+
+> ! La misma regla de coincidencia de anchos aplica a los argumentos: quien llame pasando una variable declarada con un ancho explícito distinto al del parámetro necesita convertirla explícitamente primero.
+
 ### Función principal (`init`) y `run`
 
 La palabra clave `run` ejecuta la función `init()` definida en el ámbito global. Esta es la forma estándar de estructurar el punto de entrada de un programa:
@@ -416,6 +501,29 @@ $print($dir)  -- 0
 ```
 
 Los valores se asignan automáticamente a partir de `0`. Se accede a ellos con `NombreEnum.MIEMBRO`.
+
+### `.null`, iteración, y `in`
+
+Todo enum tiene un miembro implícito `.null` — un centinela que significa "aún no se ha guardado nada de esta enumeración". Es independiente de los miembros propios del enum y nunca se cuenta como uno de ellos:
+
+```gbn
+enum Direction = {UP, DOWN, LEFT, RIGHT}
+
+var actual: Direction = Direction.null
+$print($actual)  -- distinto al valor de cualquier miembro declarado
+```
+
+Un enum es directamente iterable con `for ... in`, y soporta el operador de membresía `in` — ambos recorren solo los miembros declarados, nunca `.null`:
+
+```gbn
+for d in $Direction
+    $print(d)          -- UP, DOWN, LEFT, RIGHT — nunca .null
+end
+
+if Direction.UP in $Direction
+    $print("UP es un miembro")
+end
+```
 
 ### Enums en clases
 
@@ -585,6 +693,20 @@ Las etiquetas de caso pueden ser cualquier expresión evaluable: literales, vari
 | `loop` | Reinicia la iteración actual desde el principio |
 | `pass` | No hace nada (marcador de bloque vacío) |
 
+`loop` es fácil de confundir con `continue` porque en un `while` simple se ven parecidos, pero no son lo mismo: `continue` avanza a la *siguiente* iteración (el siguiente ítem de un `for`, o vuelve a revisar la condición de un `while`), mientras que `loop` vuelve a ejecutar la *misma* iteración desde el principio, con su estado exactamente como estaba — el mismo ítem del `for`, sin revisar de nuevo la condición del `while` — hasta que termina normalmente.
+
+```gbn
+var intentos: int = 0
+for item in [10, 20]
+    $intentos += 1
+    $print(f"probando {item}")
+    if item == 10 and $intentos < 2
+        loop  -- reinicia con item todavía en 10, no 20
+    end
+end
+-- imprime: probando 10 / probando 10 / probando 20
+```
+
 ### `await`
 
 Pausa la ejecución hasta que una condición sea verdadera (polling cada 10ms):
@@ -669,6 +791,30 @@ $fp.call("Carlos")   -- Hola Carlos
 
 Los punteros permiten acceso indirecto y pueden apuntar a rutas complejas (`$$objeto.campo`, `$$array[0]`). Son útiles para alias, referencias dinámicas, y para pasar referencias a funciones (por ejemplo, al conectar handlers a un [evento](#16-eventos)).
 
+### Punteros a dirección cruda
+
+Un `ptr` también puede construirse a partir de una dirección entera cruda en lugar de `$$objetivo`:
+
+```gbn
+var memoria: ptr = 0x7fff5fbff80c
+```
+
+> ! Esto **no** desreferencia memoria real del proceso — hacer eso de forma segura desde un intérprete que recorre el árbol de sintaxis no es posible (no hay forma de saber si una dirección dada siquiera es válida, e intentarlo de todas formas arriesga tumbar el proceso o leer memoria que no es tuya). Lo que se obtiene en cambio es un handle opaco que lleva la dirección como pura identidad:
+
+```gbn
+$print($memoria.ref)          -- la dirección misma
+$print($memoria.name)         -- "0x7fff5fbff80c"
+$print($memoria.is_callable)  -- false
+$print($memoria.is_mutable)   -- false
+$print($memoria.size)         -- tamaño nativo de puntero (8 bytes)
+
+$print($memoria.value)        -- error: no hay nada que desreferenciar
+$memoria.value = 5             -- error: no hay nada donde escribir
+$memoria.call()                -- error: no hay nada que llamar
+```
+
+Mismo objeto, misma superficie de miembros que un puntero normal — `.value`, `.set()` y `.call()` simplemente no tienen nada sobre qué actuar, y lo dicen claramente en vez de adivinar.
+
 ---
 
 ## 16. Eventos
@@ -721,6 +867,19 @@ Carga un archivo `.gbn` (u otro soportado) y expone todos sus símbolos en el á
 
 La importación es idempotente: si un módulo ya fue cargado, no se vuelve a ejecutar.
 
+### Importar varios módulos a la vez
+
+```gbn
+@use math, random, sys
+```
+
+Cada uno se carga de forma independiente, exactamente como si tuviera su propia línea `@use`. No se permite `@as` en un `@use` con varios módulos — un solo alias no puede representar varios módulos distintos — impórtalos uno por línea si cada uno necesita su propio nombre:
+
+```gbn
+@use math @as mate
+@use random @as rand
+```
+
 ### `@from` / `@as` — importar con alias
 
 Carga un módulo y lo expone como un namespace con nombre:
@@ -729,6 +888,32 @@ Carga un módulo y lo expone como un namespace con nombre:
 @from "utils.gbn" @as utils
 $print($utils.mi_funcion())
 ```
+
+`@use ruta @as alias` (un solo módulo) hace exactamente lo mismo — es la misma funcionalidad, alcanzada desde cualquiera de las dos palabras clave.
+
+### Importaciones selectivas (`@from ... @use`)
+
+Cargar un módulo entero solo para usar una o dos de sus funciones desperdicia memoria en todo lo demás que define, y puede llenar la salida de `--w` con advertencias sobre símbolos que quien importa nunca pidió. `@from modulo @use $$simbolo` carga únicamente los símbolos nombrados en lugar de ejecutar el módulo completo y traer todo lo que expone:
+
+```gbn
+@from math @use $$_sqrt
+$print($_sqrt(4.0))
+```
+
+Varios símbolos del mismo módulo, separados por coma:
+
+```gbn
+@from math @use $$_PI, $$_E, $$_sqrt
+```
+
+Agrega `@as` para agrupar los símbolos seleccionados bajo un solo namespace en lugar de que caigan directo en el ámbito actual — permitido aquí (a diferencia del caso de `@use` con varios módulos de arriba) porque todo sigue viniendo de un solo módulo:
+
+```gbn
+@from sys @use $$_format_time, $$_miliseconds @as os
+$print($os._format_time())
+```
+
+Los símbolos `#reserved` siguen sin poder importarse así, ni selectivamente ni de otra forma.
 
 ### Formatos soportados
 
@@ -807,6 +992,7 @@ Estas funciones están disponibles sin necesidad de importar nada:
 | Función | Descripción |
 |---------|-------------|
 | `$print(valor)` | Imprime un valor |
+| `$reprint(valor)` | Como `$print`, pero sobreescribe la línea actual en lugar de iniciar una nueva — ver abajo |
 | `$int(valor)` | Convierte a entero |
 | `$float(valor)` | Convierte a flotante |
 | `$str(valor)` | Convierte a string |
@@ -818,6 +1004,28 @@ Estas funciones están disponibles sin necesidad de importar nada:
 | `$file_write(ruta, contenido)` | Escribe (sobreescribe) un archivo |
 | `$file_append(ruta, contenido)` | Añade contenido al final de un archivo |
 | `$file_exists(ruta)` | Retorna `true` si el archivo existe |
+
+### Argumentos con nombre de `$print`
+
+`$print` acepta `sep`, `end` y `flush` por nombre:
+
+```gbn
+$print("a", "b", sep="-", end="")   -- a-b, sin salto de línea final
+$print("c")
+```
+
+### `$reprint` — actualizar una línea en el mismo lugar
+
+La salida de estado/progreso normalmente necesita sobreescribir la misma línea de terminal en vez de desplazar una nueva en cada llamada. `$reprint` hace eso sin tener que escribir `\r` y una secuencia ANSI de limpieza a mano:
+
+```gbn
+$reprint("cargando 10%")
+$reprint("cargando 100%")
+$reprint("listo!", end="\n")   -- pasa end="\n" para cerrar la línea y volver a un $print normal
+$print("después")
+```
+
+Por defecto no agrega salto de línea (así la siguiente llamada sigue sobreescribiendo) y hace flush inmediatamente. Con `end="\n"` se comporta exactamente como `$print`, así que no se pierde nada por usarlo en general.
 
 ---
 

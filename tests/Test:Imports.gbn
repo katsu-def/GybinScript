@@ -1,0 +1,9 @@
+@from /opt/GybinScript/tests/Test:Events @use $$player_is_dead
+
+func init() -> NULL
+	$print("si")
+end
+
+$player_is_dead.connect($$init)
+
+run

@@ -1,0 +1,11 @@
+-- Prints test
+
+@from time @use $$_format_time
+
+var age: int = 17
+
+$print(f"I have {age} years old")
+
+while true
+	$reprint($_format_time())
+end

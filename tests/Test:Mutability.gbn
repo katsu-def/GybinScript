@@ -1,0 +1,13 @@
+-- Mutable types
+
+const Test1: int = 10
+#inmutable var Test2: int = 20
+
+var mut1: ptr = $$Test1
+var mut2: ptr = $$Test2
+
+-- $mut1 = 12 -- Error
+-- $Test2 = 8 -- Error 
+$mut2 = 23
+
+$print($mut1.value, $mut2.value)

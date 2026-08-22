@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import re
+
 # ALL:
 # Este archivo contiene herramientas puras de lectura de codigo fuente.
 # Las funciones no ejecutan programas ni modifican memoria; solo convierten
 # texto gbn en piezas que el motor puede interpretar.
 # `parse_annotation` entiende tipos, limites y elementos de arrays/dicts.
+# `str[N]` limita la cantidad de caracteres; `int[N]`/`float[N]` reusan el
+# mismo campo `max_size` para declarar el ancho en bits (8/16/32/64 para
+# int, 16/32/64 para float) en vez de una cantidad de elementos. Sin ese
+# anotador extra el numero se comporta como hasta ahora (64 bits, sin
+# limite explicito). Ver `_BRACKET_SIZE_RE` mas abajo.
 # Tambien reconoce "ptr" como pseudo-tipo primitivo: solo puede contener un
 # Pointer (creado con $$objetivo); su validacion real ocurre en el motor,
 # ya que la clase Pointer vive en engine.py y no en TYPE_MAP.
@@ -44,11 +51,44 @@ def _normalize_type_or_identifier(type_text: str, context: str) -> str:
     raise TypeError(f"Unsupported {context} type: {type_text}")
 
 
+# Matches `str[164]`, `int[16]`, `float[32]` and also tolerates a space before the
+# bracket (`float [32]`) since that's the shorthand the language documents for
+# choosing a bit width instead of C/Rust-style short_int/long_int type names.
+_BRACKET_SIZE_RE = re.compile(r"^(str|int|float)\s*\[\s*(-?\d+)\s*\]$", re.IGNORECASE)
+
+# int[N]: signed two's-complement range for each supported width.
+_VALID_INT_BITS: tuple[int, ...] = (8, 16, 32, 64)
+# float[N]: matches IEEE-754 half/single/double precision, the widths Python's
+# own `struct` module can pack via format codes 'e'/'f'/'d'.
+_VALID_FLOAT_BITS: tuple[int, ...] = (16, 32, 64)
+
+
 def parse_annotation(annotation: str) -> tuple[str, int | None, str | None]:
     annotation_text = annotation.strip()
     lowered = annotation_text.lower()
     if annotation_text == "":
         return "", None, None
+
+    bracket_match = _BRACKET_SIZE_RE.match(annotation_text)
+    if bracket_match:
+        base_type = bracket_match.group(1).lower()
+        size = int(bracket_match.group(2))
+        if base_type == "str":
+            if size <= 0:
+                raise TypeError(f"Invalid string size: {size}")
+            return "str", size, None
+        if base_type == "int":
+            if size not in _VALID_INT_BITS:
+                raise TypeError(
+                    f"Invalid int bit width: {size}. Must be one of {', '.join(map(str, _VALID_INT_BITS))}"
+                )
+            return "int", size, None
+        # base_type == "float"
+        if size not in _VALID_FLOAT_BITS:
+            raise TypeError(
+                f"Invalid float bit width: {size}. Must be one of {', '.join(map(str, _VALID_FLOAT_BITS))}"
+            )
+        return "float", size, None
 
     # `ptr` is a pseudo-primitive: it never holds a real value directly, only a
     # Pointer (reference) created via `$$target`. It behaves like a primitive type
@@ -116,13 +156,6 @@ def parse_annotation(annotation: str) -> tuple[str, int | None, str | None]:
         if "," in inner or _is_identifier(inner):
             return "", None, inner
         raise TypeError(f"Invalid bracket annotation: {annotation}")
-
-    if lowered.startswith("str[") and lowered.endswith("]"):
-        try:
-            max_size = int(annotation_text[4:-1])
-            return "str", max_size, None
-        except ValueError:
-            raise TypeError(f"Invalid string size: {annotation_text[4:-1]}")
 
     if lowered in TYPE_MAP:
         return lowered, None, None

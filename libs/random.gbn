@@ -4,7 +4,7 @@
 @use time.gbn
 
 -- Global seed for pseudo-random number generation
-#onready var _random_seed: float = 12345.0
+var _random_seed: float = $_milliseconds()
 
 -- Set the seed for reproducible random numbers
 func _seed(_new_seed: float) -> NULL
@@ -14,7 +14,7 @@ end
 -- Internal Linear Congruential Generator
 func __lcg() -> float
 	-- Using LCG formula: X(n+1) = (a * X(n) + c) mod m
-	$_seed($_milliseconds())
+	-- $_seed($_milliseconds())
 	$_random_seed = $_mod(1103515245.0 * $_random_seed + 12345.0, 2147483648.0)
 	return $_random_seed / 2147483648.0
 end
@@ -221,7 +221,7 @@ func _random_bool_array(_count: float) -> array
 end
 
 -- Generate a random 2D vector
-func _random_vec2(_min_val: float, _max_val: float) -> array
+func _random_vec2i(_min_val: int, _max_val: int) -> vec2i
 	if $_min_val == NULL
 		$_min_val = 0
 	end
@@ -230,11 +230,23 @@ func _random_vec2(_min_val: float, _max_val: float) -> array
 		$_max_val = 1
 	end
 	
-	return [$_random_float($_min_val, $_max_val), $_random_float($_min_val, $_max_val)]
+	return $vec2i($_random_int($_min_val, $_max_val), $_random_int($_min_val, $_max_val))
+end
+
+func _random_vec2(_min_val: float, _max_val: float) -> vec2
+	if $_min_val == NULL
+		$_min_val = 0
+	end
+
+	if $_max_val == NULL
+		$_max_val = 1
+	end
+	
+	return $vec2($_random_float($_min_val, $_max_val), $_random_float($_min_val, $_max_val))
 end
 
 -- Generate a random 3D vector
-func _random_vec3(_min_val: float, _max_val: float) -> array
+func _random_vec3i(_min_val: int, _max_val: int) -> vec3i
 	if $_min_val == NULL
 		$_min_val = 0
 	end
@@ -243,44 +255,56 @@ func _random_vec3(_min_val: float, _max_val: float) -> array
 		$_max_val = 1
 	end
 	
-	return [$_random_float($_min_val, $_max_val), $_random_float($_min_val, $_max_val), $_random_float($_min_val, $_max_val)]
+	return $vec3i($_random_int($_min_val, $_max_val), $_random_int($_min_val, $_max_val), $_random_int($_min_val, $_max_val))
+end
+
+func _random_vec3(_min_val: float, _max_val: float) -> vec3
+	if $_min_val == NULL
+		$_min_val = 0
+	end
+
+	if $_max_val == NULL
+		$_max_val = 1
+	end
+	
+	return $vec3($_random_float($_min_val, $_max_val), $_random_float($_min_val, $_max_val), $_random_float($_min_val, $_max_val))
 end
 
 -- Generate a random normalized 2D vector (unit vector)
-func _random_direction_2d() -> array
+func _random_direction_2d() -> vec2
 	var _angle: float = $_random_float(0, 2 * _PI)
-	return [$_cos($_angle), $_sin($_angle)]
+	return $vec2($_cos($_angle), $_sin($_angle))
 end
 
 -- Generate a random normalized 3D vector (unit vector)
-func _random_direction_3d() -> array
+func _random_direction_3d() -> vec3
 	var _u: float = $_random_float(-1, 1)
 	var _theta: float = $_random_float(0, 2 * _PI)
 	var _r: float = $_sqrt(1 - $_u * $_u)
 
-	return [$_r * $_cos($_theta), $_r * $_sin($_theta), $_u]
+	return $vec3($_r * $_cos($_theta), $_r * $_sin($_theta), $_u)
 end
 
 -- Generate a random vector within a sphere (3D)
-func _random_in_sphere(_radius: float) -> array
+func _random_in_sphere(_radius: float) -> vec3
 	if $_radius == NULL
 		$_radius = 1
 	end
 	
-	var _direction: array = $_random_direction_3d()
+	var _direction: vec3 = $_random_direction_3d()
 	var _magnitude: float = $_pow($_random(), 1.0 / 3.0) * $_radius
-	return [$_direction[0] * $_magnitude, $_direction[1] * $_magnitude, $_direction[2] * $_magnitude]
+	return $vec3($_direction.x * $_magnitude, $_direction.y * $_magnitude, $_direction.z * $_magnitude)
 end
 
 -- Generate a random vector within a circle (2D)
-func _random_in_circle(_radius: float) -> array
+func _random_in_circle(_radius: float) -> vec2
 	if $_radius == NULL
 		$_radius = 1
 	end
 	
-	var _direction: array = _random_direction_2d()
+	var _direction: vec2 = _random_direction_2d()
 	var _magnitude: float = $_sqrt($_random()) * $_radius
-	return [$_direction[0] * $_magnitude, $_direction[1] * $_magnitude]
+	return $vec2($_direction.x * $_magnitude, $_direction.y * $_magnitude)
 end
 
 -- Check if a random event occurs with given probability (0-1)
@@ -310,19 +334,19 @@ func _random_weighted_choice(_weighted_array: array) -> any
 end
 
 -- Generate a random color as RGB array [r, g, b] with values 0-1
-func _random_color() -> array
-	return [$_random(), $_random(), $_random()]
+func _random_color() -> color
+	return $color($_random(), $_random(), $_random(), 0.0)
 end
 
 -- Generate a random color as RGB array with integer values 0-255
-func _random_color_int() -> array
-	return [$_random_int(0, 255), $_random_int(0, 255), _random_int(0, 255)]
+func _random_color_int() -> color
+	return $color($_random_int(0, 255) / 255.0, $_random_int(0, 255) / 255.0, $_random_int(0, 255) / 255.0, 0.0)
 end
 
 -- Generate a random float clamped to a range
 func _random_clamped(_min_val: float, _max_val: float) -> float
 	return $_clamp($_random_normal() * ($_max_val - $_min_val) / 4 + ($_max_val + $_min_val) / 2, $_min_val, $_max_val)
-end
+end 
 
 -- Perturb a value by a random amount
 func _random_perturb(_value: float, _amount: float) -> float

@@ -1,0 +1,11 @@
+#!/usr/bin/env Gybin
+
+@use random
+
+-- x: int, y: int, z: int 
+
+$print($_random_vec3i(3, 9))
+
+-- x: float, y: float, z: float
+
+$print($_random_vec3(3, 9))

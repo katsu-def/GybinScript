@@ -1,4 +1,4 @@
--- Prueba de comportamiento de enums
+-- Enums tests
 
 enum Direction = {UP, DOWN, LEFT, RIGHT} -- Guarda los posibles estados de "Direction".
 

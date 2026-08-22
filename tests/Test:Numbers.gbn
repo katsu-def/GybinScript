@@ -1,0 +1,12 @@
+#!/usr/bin/env Gybin
+
+-- Numbers of bits
+
+
+var ints: int[16] = 15 -- int 16 bits
+var dec: float[16] = $ints -- coercion
+
+-- var random: int[8] = $decimal -- error
+
+$print($ints, $dec)
+-- $print($random)
