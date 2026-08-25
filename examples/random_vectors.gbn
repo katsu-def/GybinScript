@@ -1,6 +1,6 @@
 #!/usr/bin/env Gybin
 
-@use random
+@from random @use $$_random_vec3i, $$_random_vec3
 
 -- x: int, y: int, z: int 
 

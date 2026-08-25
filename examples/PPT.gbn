@@ -1,0 +1,93 @@
+#!/usr/bin/env Gybin
+
+@use random
+
+var score: dict[int][2] = {"Player": 0, "CPU": 0}
+var player_input: str[1] = NULL
+var rst: array[str][2] = ["NaN", "NaN"]
+
+const items: array[str][3] = ["O", "#", "X"]
+
+
+func add_points(entity: str) -> NULL
+	$score[entity] += 1 
+end
+
+
+func analizer(player_input: str[1], CPU_input: str[1]) -> NULL
+	-- O > X but O < #
+	-- # > O but # < X
+	-- X > # but X < O
+	
+	$print("-", $rst[1])
+	
+	if $player_input == $CPU_input
+		$print("Empate!")
+		$add_points("Player")
+		$add_points("CPU")
+	else
+		match $player_input
+			case "O"
+				if $CPU_input == "X"
+					$print("Tu ganas!")
+					$add_points("Player")
+				else
+					$print("CPU gana!")
+					$add_points("CPU")
+				end
+
+			case "#"
+				if $CPU_input == "O"
+					$print("Tu ganas!")
+					$add_points("Player")
+				else
+					$print("CPU gana!")
+					$add_points("CPU")
+				end
+			case "X"
+				if $CPU_input == "#"
+					$print("Tu ganas!")
+					$add_points("Player")
+				else
+					$print("CPU gana!")
+					$add_points("CPU")
+				end
+		end
+	end
+
+	-- $rst = ["NaN", "NaN"]
+	$print($score, "\n")
+end
+
+func play_CPU() -> NULL
+	$rst[1] = $items[$_randint(0,2)]
+	$analizer($rst[0], $rst[1])
+end
+
+func play() -> NULL
+	try
+		$rst = ["NaN", "NaN"]
+		$print("Elige un item. O: Piedra, #: Papel, X: Tijeras")
+		$player_input = $input("> ")
+	catch
+		$print("Syntax error, returned... \n")
+	end
+
+	
+	if $player_input in $items
+		$rst[0] = $player_input
+		$play_CPU()
+		
+	else
+		$print("Syntax error, returned... \n")
+	end
+end
+
+func init() -> NULL
+	while true
+		$play()
+	end
+end
+
+
+run

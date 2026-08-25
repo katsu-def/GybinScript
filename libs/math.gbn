@@ -444,283 +444,352 @@ func _complex_str(_c: array) -> string
 end
 
 -- ============================================
--- VECTORS (represented as arrays)
+-- VECTORS (real vector types from stdutils: vec2 / vec2i / vec3 / vec3i)
 -- ============================================
+-- Fixed-shape classes with named fields (.x/.y/.z), not arrays — so unlike the old
+-- array-based version there's no single generic n-dimensional function set; vec2 and
+-- vec3 (and their int counterparts) each get their own operations below. There's also
+-- no need for constructor helpers like the old `_vec2(x, y)`: the real classes already
+-- do that directly (`$vec2(x, y)`), better, so those wrappers were dropped along with
+-- `_vector`/`_vec_get`/`_vec_set`, which had no equivalent once a vector stopped being
+-- a plain indexable array.
 
--- Create a 2D vector
-func _vec2(_x: float, _y: float) -> array
-	return [$_x, $_y]
-end
+@from stdutils @use $$vec2, $$vec2i, $$vec3, $$vec3i
 
--- Create a 3D vector
-func _vec3(_x: float, _y: float, _z: float) -> array
-	return [$_x, $_y, $_z]
-end
-
--- Create an n-dimensional vector
-func _vector(_components: array) -> array
-	return $_components
-end
-
--- Get vector component by index
-func _vec_get(_v: array, _index: float) -> float
-	return $_v[_round($_index)]
-end
-
--- Set vector component by index
-func _vec_set(_v: array, _index: float, _value: float) -> array
-	var _result: array = []
-	for _i in range(0, _v.size())
-		if $_i == _round($_index)
-			$_result.push_back($_value)
-		else
-			$_result.push_back($_v[$_i])
-		end
-	end
-	return $_result
-end
+-- ---- vec2 (float) --------------------------------------------------------
 
 -- Vector addition: u + v
-func _vec_add(_u: array, _v: array) -> array
-	var _result: array = []
-	var _size: float = _min(_u.size(), _v.size())
-
-	for _i in range(0, _size)
-		$_result.push_back($_u[$_i] + $_v[$_i])
-	end
-
-	return $_result
+func _vec2_add(u: vec2, v: vec2) -> vec2
+	return $vec2($u.x + $v.x, $u.y + $v.y)
 end
 
 -- Vector subtraction: u - v
-func _vec_sub(_u: array, _v: array) -> array
-	var _result: array = []
-	var _size: float = _min(_u.size(), _v.size())
-
-	for _i in range(0, _size)
-		$_result.push_back($_u[$_i] - $_v[$_i])
-	end
-
-	return $_result
+func _vec2_sub(u: vec2, v: vec2) -> vec2
+	return $vec2($u.x - $v.x, $u.y - $v.y)
 end
 
 -- Scalar multiplication: v * scalar
-func _vec_scale(_v: array, _scalar: float) -> array
-	var _result: array = []
-
-	for _i in range(0, _v.size())
-		$_result.push_back($_v[$_i] * $_scalar)
-	end
-
-	return $_result
+func _vec2_scale(v: vec2, scalar: float) -> vec2
+	return $vec2($v.x * $scalar, $v.y * $scalar)
 end
 
--- Dot product: u · v
-func _vec_dot(_u: array, _v: array) -> float
-	var _result: float = 0
-	var _size: float = _min(_u.size(), _v.size())
+-- Element-wise multiplication: u * v
+func _vec2_multiply(u: vec2, v: vec2) -> vec2
+	return $vec2($u.x * $v.x, $u.y * $v.y)
+end
 
-	for _i in range(0, _size)
-		$_result = $_result + $_u[$_i] * $_v[$_i]
+-- Element-wise division: u / v (0 where the divisor component is 0)
+func _vec2_divide(u: vec2, v: vec2) -> vec2
+	var _rx: float = 0
+	var _ry: float = 0
+	if $v.x != 0
+		$_rx = $u.x / $v.x
 	end
+	if $v.y != 0
+		$_ry = $u.y / $v.y
+	end
+	return $vec2($_rx, $_ry)
+end
 
-	return $_result
+-- Dot product: u . v
+func _vec2_dot(u: vec2, v: vec2) -> float
+	return $u.x * $v.x + $u.y * $v.y
 end
 
 -- Vector magnitude/length: |v|
-func _vec_magnitude(_v: array) -> float
-	return _sqrt(_vec_dot($_v, $_v))
+func _vec2_magnitude(v: vec2) -> float
+	return _sqrt(_vec2_dot($v, $v))
 end
 
 -- Vector length (alias for magnitude)
-func _vec_length(_v: array) -> float
-	return _vec_magnitude($_v)
+func _vec2_length(v: vec2) -> float
+	return _vec2_magnitude($v)
 end
 
 -- Normalize vector: v / |v|
-func _vec_normalize(_v: array) -> array
-	var _magnitude: float = _vec_magnitude($_v)
-
+func _vec2_normalize(v: vec2) -> vec2
+	var _magnitude: float = _vec2_magnitude($v)
 	if $_magnitude == 0
-		return $_v
-	else
-		return _vec_scale($_v, 1 / $_magnitude)
+		return $v
 	end
+	return _vec2_scale($v, 1 / $_magnitude)
+end
+
+-- Convert vector to unit vector (normalized)
+func _vec2_unit(v: vec2) -> vec2
+	return _vec2_normalize($v)
 end
 
 -- Distance between two vectors
-func _vec_distance(_u: array, _v: array) -> float
-	return _vec_magnitude(_vec_sub($_u, $_v))
+func _vec2_distance(u: vec2, v: vec2) -> float
+	return _vec2_magnitude(_vec2_sub($u, $v))
 end
 
 -- Squared distance (more efficient, no sqrt)
-func _vec_distance_squared(_u: array, _v: array) -> float
-	var _diff: array = _vec_sub($_u, $_v)
-	return _vec_dot($_diff, $_diff)
-end
-
--- Cross product (for 3D vectors): u × v
-func _vec_cross(_u: array, _v: array) -> array
-	if _u.size() == 3 and _v.size() == 3
-		var _x: float = $_u[1] * $_v[2] - $_u[2] * $_v[1]
-		var _y: float = $_u[2] * $_v[0] - $_u[0] * $_v[2]
-		var _z: float = $_u[0] * $_v[1] - $_u[1] * $_v[0]
-		return [$_x, $_y, $_z]
-	else
-		return []
-	end
+func _vec2_distance_squared(u: vec2, v: vec2) -> float
+	var _diff: vec2 = _vec2_sub($u, $v)
+	return _vec2_dot($_diff, $_diff)
 end
 
 -- Angle between two vectors (in radians)
-func _vec_angle(_u: array, _v: array) -> float
-	var _dot: float = _vec_dot($_u, $_v)
-	var _mag_u: float = _vec_magnitude($_u)
-	var _mag_v: float = _vec_magnitude($_v)
+func _vec2_angle(u: vec2, v: vec2) -> float
+	var _mag_u: float = _vec2_magnitude($u)
+	var _mag_v: float = _vec2_magnitude($v)
 
 	if $_mag_u == 0 or $_mag_v == 0
 		return 0
 	end
 
-	var _cos_angle: float = $_dot / ($_mag_u * $_mag_v)
+	var _cos_angle: float = _vec2_dot($u, $v) / ($_mag_u * $_mag_v)
 	-- Clamp to [-1, 1] to avoid rounding errors in acos
 	$_cos_angle = _clamp($_cos_angle, -1, 1)
 
 	return _acos($_cos_angle)
 end
 
--- Projection of u onto v: proj_v(u) = (u·v / v·v) * v
-func _vec_project(_u: array, _v: array) -> array
-	var _dot: float = _vec_dot($_u, $_v)
-	var _v_squared: float = _vec_dot($_v, $_v)
+-- Projection of u onto v: proj_v(u) = (u.v / v.v) * v
+func _vec2_project(u: vec2, v: vec2) -> vec2
+	var _v_squared: float = _vec2_dot($v, $v)
 
 	if $_v_squared == 0
-		return []
+		return $vec2(0, 0)
 	end
 
-	return _vec_scale($_v, $_dot / $_v_squared)
+	return _vec2_scale($v, _vec2_dot($u, $v) / $_v_squared)
 end
 
 -- Rejection of u from v: u - proj_v(u)
-func _vec_reject(_u: array, _v: array) -> array
-	return _vec_sub($_u, _vec_project($_u, $_v))
+func _vec2_reject(u: vec2, v: vec2) -> vec2
+	return _vec2_sub($u, _vec2_project($u, $v))
 end
 
 -- Linear interpolation between vectors: lerp(u, v, t)
-func _vec_lerp(_u: array, _v: array, _t: float) -> array
-	return _vec_add(_vec_scale($_u, 1 - $_t), _vec_scale($_v, $_t))
+func _vec2_lerp(u: vec2, v: vec2, t: float) -> vec2
+	return _vec2_add(_vec2_scale($u, 1 - $t), _vec2_scale($v, $t))
 end
 
--- Reflect vector v around normal n: v - 2(v·n)n
-func _vec_reflect(_v: array, _n: array) -> array
-	var _dot: float = _vec_dot($_v, $_n)
-	return _vec_sub($_v, _vec_scale($_n, 2 * $_dot))
+-- Reflect vector v around normal n: v - 2(v.n)n
+func _vec2_reflect(v: vec2, n: vec2) -> vec2
+	return _vec2_sub($v, _vec2_scale($n, 2 * _vec2_dot($v, $n)))
 end
 
--- All components of vector
-func _vec_components(_v: array) -> array
-	return $_v
-end
-
--- Sum of all components
-func _vec_sum(_v: array) -> float
-	var _result: float = 0
-
-	for _i in range(0, _v.size())
-		$_result = $_result + $_v[$_i]
-	end
-
-	return $_result
-end
-
--- Average of all components
-func _vec_average(_v: array) -> float
-	if _v.size() == 0
-		return 0
-	end
-
-	return _vec_sum($_v) / _v.size()
-end
-
--- Element-wise multiplication: u * v
-func _vec_multiply(_u: array, _v: array) -> array
-	var _result: array = []
-	var _size: float = _min(_u.size(), _v.size())
-
-	for _i in range(0, _size)
-		$_result.push_back($_u[$_i] * $_v[$_i])
-	end
-
-	return $_result
-end
-
--- Element-wise division: u / v
-func _vec_divide(_u: array, _v: array) -> array
-	var _result: array = []
-	var _size: float = _min(_u.size(), _v.size())
-
-	for _i in range(0, _size)
-		if $_v[$_i] != 0
-			$_result.push_back($_u[$_i] / $_v[$_i])
-		else
-			$_result.push_back(0)
-		end
-	end
-
-	return $_result
-end
-
--- Maximum component value
-func _vec_max(_v: array) -> float
-	if _v.size() == 0
-		return 0
-	end
-
-	var _max_val: float = $_v[0]
-
-	for _i in range(1, _v.size())
-		if $_v[$_i] > $_max_val
-			$_max_val = $_v[$_i]
-		end
-	end
-
-	return $_max_val
-end
-
--- Minimum component value
-func _vec_min(_v: array) -> float
-	if _v.size() == 0
-		return 0
-	end
-
-	var _min_val: float = $_v[0]
-
-	for _i in range(1, _v.size())
-		if $_v[$_i] < $_min_val
-			$_min_val = $_v[$_i]
-		end
-	end
-
-	return $_min_val
+-- Component-wise equality
+func _vec2_equals(u: vec2, v: vec2) -> bool
+	return $u.x == $v.x and $u.y == $v.y
 end
 
 -- Format vector as string
-func _vec_str(_v: array) -> string
-	var _result: string = "("
+func _vec2_str(v: vec2) -> str
+	return "(" + str($v.x) + ", " + str($v.y) + ")"
+end
 
-	for _i in range(0, _v.size())
-		$_result = $_result + str($_v[$_i])
-		if $_i < _v.size() - 1
-			$_result = $_result + ", "
-		end
+-- ---- vec3 (float) --------------------------------------------------------
+
+-- Vector addition: u + v
+func _vec3_add(u: vec3, v: vec3) -> vec3
+	return $vec3($u.x + $v.x, $u.y + $v.y, $u.z + $v.z)
+end
+
+-- Vector subtraction: u - v
+func _vec3_sub(u: vec3, v: vec3) -> vec3
+	return $vec3($u.x - $v.x, $u.y - $v.y, $u.z - $v.z)
+end
+
+-- Scalar multiplication: v * scalar
+func _vec3_scale(v: vec3, scalar: float) -> vec3
+	return $vec3($v.x * $scalar, $v.y * $scalar, $v.z * $scalar)
+end
+
+-- Element-wise multiplication: u * v
+func _vec3_multiply(u: vec3, v: vec3) -> vec3
+	return $vec3($u.x * $v.x, $u.y * $v.y, $u.z * $v.z)
+end
+
+-- Element-wise division: u / v (0 where the divisor component is 0)
+func _vec3_divide(u: vec3, v: vec3) -> vec3
+	var _rx: float = 0
+	var _ry: float = 0
+	var _rz: float = 0
+	if $v.x != 0
+		$_rx = $u.x / $v.x
 	end
+	if $v.y != 0
+		$_ry = $u.y / $v.y
+	end
+	if $v.z != 0
+		$_rz = $u.z / $v.z
+	end
+	return $vec3($_rx, $_ry, $_rz)
+end
 
-	$_result = $_result + ")"
-	return $_result
+-- Dot product: u . v
+func _vec3_dot(u: vec3, v: vec3) -> float
+	return $u.x * $v.x + $u.y * $v.y + $u.z * $v.z
+end
+
+-- Cross product: u x v
+func _vec3_cross(u: vec3, v: vec3) -> vec3
+	var _x: float = $u.y * $v.z - $u.z * $v.y
+	var _y: float = $u.z * $v.x - $u.x * $v.z
+	var _z: float = $u.x * $v.y - $u.y * $v.x
+	return $vec3($_x, $_y, $_z)
+end
+
+-- Vector magnitude/length: |v|
+func _vec3_magnitude(v: vec3) -> float
+	return _sqrt(_vec3_dot($v, $v))
+end
+
+-- Vector length (alias for magnitude)
+func _vec3_length(v: vec3) -> float
+	return _vec3_magnitude($v)
+end
+
+-- Normalize vector: v / |v|
+func _vec3_normalize(v: vec3) -> vec3
+	var _magnitude: float = _vec3_magnitude($v)
+	if $_magnitude == 0
+		return $v
+	end
+	return _vec3_scale($v, 1 / $_magnitude)
 end
 
 -- Convert vector to unit vector (normalized)
-func _vec_unit(_v: array) -> array
-	return _vec_normalize($_v)
+func _vec3_unit(v: vec3) -> vec3
+	return _vec3_normalize($v)
+end
+
+-- Distance between two vectors
+func _vec3_distance(u: vec3, v: vec3) -> float
+	return _vec3_magnitude(_vec3_sub($u, $v))
+end
+
+-- Squared distance (more efficient, no sqrt)
+func _vec3_distance_squared(u: vec3, v: vec3) -> float
+	var _diff: vec3 = _vec3_sub($u, $v)
+	return _vec3_dot($_diff, $_diff)
+end
+
+-- Angle between two vectors (in radians)
+func _vec3_angle(u: vec3, v: vec3) -> float
+	var _mag_u: float = _vec3_magnitude($u)
+	var _mag_v: float = _vec3_magnitude($v)
+
+	if $_mag_u == 0 or $_mag_v == 0
+		return 0
+	end
+
+	var _cos_angle: float = _vec3_dot($u, $v) / ($_mag_u * $_mag_v)
+	-- Clamp to [-1, 1] to avoid rounding errors in acos
+	$_cos_angle = _clamp($_cos_angle, -1, 1)
+
+	return _acos($_cos_angle)
+end
+
+-- Projection of u onto v: proj_v(u) = (u.v / v.v) * v
+func _vec3_project(u: vec3, v: vec3) -> vec3
+	var _v_squared: float = _vec3_dot($v, $v)
+
+	if $_v_squared == 0
+		return $vec3(0, 0, 0)
+	end
+
+	return _vec3_scale($v, _vec3_dot($u, $v) / $_v_squared)
+end
+
+-- Rejection of u from v: u - proj_v(u)
+func _vec3_reject(u: vec3, v: vec3) -> vec3
+	return _vec3_sub($u, _vec3_project($u, $v))
+end
+
+-- Linear interpolation between vectors: lerp(u, v, t)
+func _vec3_lerp(u: vec3, v: vec3, t: float) -> vec3
+	return _vec3_add(_vec3_scale($u, 1 - $t), _vec3_scale($v, $t))
+end
+
+-- Reflect vector v around normal n: v - 2(v.n)n
+func _vec3_reflect(v: vec3, n: vec3) -> vec3
+	return _vec3_sub($v, _vec3_scale($n, 2 * _vec3_dot($v, $n)))
+end
+
+-- Component-wise equality
+func _vec3_equals(u: vec3, v: vec3) -> bool
+	return $u.x == $v.x and $u.y == $v.y and $u.z == $v.z
+end
+
+-- Format vector as string
+func _vec3_str(v: vec3) -> str
+	return "(" + str($v.x) + ", " + str($v.y) + ", " + str($v.z) + ")"
+end
+
+-- ---- vec2i (int) -----------------------------------------------------------
+-- Exact integer arithmetic only — no normalize()/angle()/project(), since those are
+-- inherently fractional; convert to vec2 first (`$vec2($v.x, $v.y)`) if you need them.
+
+func _vec2i_add(u: vec2i, v: vec2i) -> vec2i
+	return $vec2i($u.x + $v.x, $u.y + $v.y)
+end
+
+func _vec2i_sub(u: vec2i, v: vec2i) -> vec2i
+	return $vec2i($u.x - $v.x, $u.y - $v.y)
+end
+
+func _vec2i_scale(v: vec2i, scalar: int) -> vec2i
+	return $vec2i($v.x * $scalar, $v.y * $scalar)
+end
+
+func _vec2i_dot(u: vec2i, v: vec2i) -> int
+	return $u.x * $v.x + $u.y * $v.y
+end
+
+func _vec2i_length(v: vec2i) -> float
+	return _sqrt($v.x * $v.x + $v.y * $v.y)
+end
+
+func _vec2i_equals(u: vec2i, v: vec2i) -> bool
+	return $u.x == $v.x and $u.y == $v.y
+end
+
+func _vec2i_str(v: vec2i) -> str
+	return "(" + str($v.x) + ", " + str($v.y) + ")"
+end
+
+-- ---- vec3i (int) -----------------------------------------------------------
+
+func _vec3i_add(u: vec3i, v: vec3i) -> vec3i
+	return $vec3i($u.x + $v.x, $u.y + $v.y, $u.z + $v.z)
+end
+
+func _vec3i_sub(u: vec3i, v: vec3i) -> vec3i
+	return $vec3i($u.x - $v.x, $u.y - $v.y, $u.z - $v.z)
+end
+
+func _vec3i_scale(v: vec3i, scalar: int) -> vec3i
+	return $vec3i($v.x * $scalar, $v.y * $scalar, $v.z * $scalar)
+end
+
+func _vec3i_dot(u: vec3i, v: vec3i) -> int
+	return $u.x * $v.x + $u.y * $v.y + $u.z * $v.z
+end
+
+-- Cross product stays exact for integer vectors, unlike normalize/angle/etc.
+func _vec3i_cross(u: vec3i, v: vec3i) -> vec3i
+	var _x: int = $u.y * $v.z - $u.z * $v.y
+	var _y: int = $u.z * $v.x - $u.x * $v.z
+	var _z: int = $u.x * $v.y - $u.y * $v.x
+	return $vec3i($_x, $_y, $_z)
+end
+
+func _vec3i_length(v: vec3i) -> float
+	return _sqrt($v.x * $v.x + $v.y * $v.y + $v.z * $v.z)
+end
+
+func _vec3i_equals(u: vec3i, v: vec3i) -> bool
+	return $u.x == $v.x and $u.y == $v.y and $u.z == $v.z
+end
+
+func _vec3i_str(v: vec3i) -> str
+	return "(" + str($v.x) + ", " + str($v.y) + ", " + str($v.z) + ")"
 end
 
 -- decimals

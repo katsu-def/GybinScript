@@ -1,1 +1,1 @@
-pyinstaller --onefile --add-data stdutils.gbn:. --name Gybin Source/Gybin.py
+pyinstaller --onefile --add-data stdutils.gbn:. --name Gybin Gybin.py

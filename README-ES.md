@@ -2,7 +2,7 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/katsu-def/GybinScript)
 
-> **Versión:** 1.6  
+> **Versión:** 1.6.1  
 > **Extensión de archivos:** `.gbn`  
 > **Intérprete:** `Core/Gybin` \ `/usr/bin/Gybin`
 > **Ejecución:** `Gybin (Dirección de archivo: Mi_script.gbn)`
@@ -312,7 +312,6 @@ Se delimita con `!*` al inicio y `!*` al cierre. Puede abarcar múltiples línea
 | `<=` | Menor o igual |
 | `>` | Mayor que |
 | `>=` | Mayor o igual |
-| `is` | Igual por valor (equivalente a `==`) |
 
 ### Lógicos
 
@@ -321,6 +320,7 @@ Se delimita con `!*` al inicio y `!*` al cierre. Puede abarcar múltiples línea
 | `and` | Y lógico |
 | `or` | O lógico |
 | `not` | Negación |
+| `is`| Comparación de datos |
 
 ### Asignación compuesta
 
@@ -933,12 +933,12 @@ Si el path no contiene `/` y no empieza con `.`, el intérprete también busca e
 
 El intérprete tiene un límite configurable de **1024 slots** de memoria por defecto.
 
-### `free` — liberar una variable
+### `free` — liberar un espacio en memoria
 
 Elimina explícitamente una variable del ámbito:
 
 ```gbn
-$free($mi_variable) 
+$free($$mi_dato) 
 ```
 
 ### `expand_memory` — ampliar el límite

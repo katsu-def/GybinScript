@@ -4,7 +4,7 @@
 
 > [Read this manual in Spanish (README-ES.md)](./README-ES.md)
 
-> **Version:** 1.6  
+> **Version:** 1.6.1  
 > **File extension:** `.gbn`  
 > **Interpreter:** `Core/Gybin` \ `/usr/bin/Gybin`
 > **Execution:** `Gybin (File path: My_script.gbn)`
@@ -314,7 +314,6 @@ Delimited by `!*` at the start and `!*` at the end. Can span multiple lines:
 | `<=` | Less than or equal to |
 | `>` | Greater than |
 | `>=` | Greater than or equal to |
-| `is` | Equal by value (equivalent to `==`) |
 
 ### Logical
 
@@ -323,6 +322,7 @@ Delimited by `!*` at the start and `!*` at the end. Can span multiple lines:
 | `and` | Logical AND |
 | `or` | Logical OR |
 | `not` | Negation |
+| `is` | Data comparation |
 
 ### Compound Assignment
 
@@ -935,12 +935,12 @@ If the path contains no `/` and does not start with `.`, the interpreter also se
 
 The interpreter features a configurable default limit of **1024 memory slots**.
 
-### `free` — Freeing a Variable
+### `free` — Freeing a data space
 
 Explicitly removes a variable from scope:
 
 ```gbn
-$free($my_variable) 
+$free($$my_data) 
 ```
 
 ### `expand_memory` — Expanding the Limit

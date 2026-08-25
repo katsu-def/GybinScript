@@ -1298,6 +1298,55 @@ def infer_type(value: Value) -> str:
     return "any"
 
 
+# Maps the actual Python class objects bound to $int/$float/$str/$bool (see
+# BUILTIN_FUNCTIONS) to the language's own type-name strings, for `is`/`is not` (see
+# _value_matches_type_reference below). Not `list`/`dict` -> "array"/"dict": there's no
+# $array/$dict builtin exposing those classes as values today, but it costs nothing to
+# recognize them if one is ever added.
+_PRIMITIVE_TYPE_TO_LANG_NAME: dict[type, str] = {
+    bool: "bool", int: "int", float: "float", str: "str", list: "array", dict: "dict",
+}
+
+
+def _value_matches_type_reference(value: Value, type_ref: Value, memory_manager: "MemoryManager") -> bool:
+    """Right-hand side of `is`/`is not`: this used to be a plain value/identity
+    comparison (`is` behaved the same as `==`); now it's a type check instead —
+    `$number is $str` asks "is number a str", not "does number equal the str type".
+    `type_ref` is the ALREADY-EVALUATED right operand, which can be:
+
+      - NULL/None itself — special-cased to keep the pre-existing null-check idiom
+        (`$param is NULL`, see FunctionDefinition.call()) working exactly as before;
+        that's an absence-of-value check, not really a type in the language's own
+        model, but it needs to keep working.
+      - one of the primitive builtins ($int/$float/$str/$bool), which evaluate to the
+        actual Python class objects (see BUILTIN_FUNCTIONS) — matched through
+        infer_type() rather than isinstance() so bool and int stay distinct, the way
+        the rest of the language already treats them (isinstance(True, int) is True
+        in Python, which would make `$flag is $int` wrongly true for a bool).
+      - a class name ($MyClass) — resolves to a ClassDefinition at this point, checked
+        the same inheritance-aware way a `: MyClass` type annotation would be.
+      - an enum name ($MyEnum) — resolves to an EnumDefinition, same idea.
+
+    Anything else isn't a recognizable type reference, so this raises instead of
+    silently falling back to comparing values again — a wrong "type" reference
+    silently doing the OLD behavior would be a far more confusing bug to chase down
+    than a clear error right at the comparison.
+    """
+    if type_ref is None:
+        return value is None
+    if isinstance(type_ref, ClassDefinition):
+        return memory_manager._instance_matches_class(value, type_ref.name)
+    if isinstance(type_ref, EnumDefinition):
+        return memory_manager._enum_value_matches(type_ref.name, value)
+    lang_name = _PRIMITIVE_TYPE_TO_LANG_NAME.get(type_ref)
+    if lang_name is not None:
+        return infer_type(value) == lang_name
+    raise TypeError(
+        "'is' compares data types, not values (e.g. $x is $int, $x is $MyClass) — "
+        f"{type_ref!r} isn't a type reference. Use '==' to compare values instead."
+    )
+
+
 def _coerce_numeric_operands(a: Value, b: Value) -> tuple[Value, Value]:
     """Coerce int/float operands: if either is float, convert both to float.
     Returns the possibly converted pair (a, b)."""
@@ -1836,7 +1885,12 @@ def evaluate_ast(node: ast.AST, memory_manager: MemoryManager, current_dir: Path
             right = evaluate_ast(comparator, memory_manager, current_dir)
             # Only coerce numerics when both sides are numeric — never when comparing against
             # str/list/dict/None, as that would corrupt equality checks like x == "" or x == [].
-            if isinstance(operator, (ast.Eq, ast.NotEq, ast.Is, ast.IsNot)):
+            # 'is'/'is not' get neither: they no longer compare values at all (see
+            # _value_matches_type_reference), so coercing would be pointless work at best
+            # and could mask the raw right-hand value's identity at worst.
+            if isinstance(operator, (ast.Is, ast.IsNot)):
+                left_cmp, right_cmp = left, right
+            elif isinstance(operator, (ast.Eq, ast.NotEq)):
                 if isinstance(left, (int, float)) and isinstance(right, (int, float)):
                     left_cmp, right_cmp = _coerce_numeric_operands(left, right)
                 else:
@@ -1858,11 +1912,12 @@ def evaluate_ast(node: ast.AST, memory_manager: MemoryManager, current_dir: Path
                 elif left not in right:
                     return False
             elif isinstance(operator, ast.Is):
-                # 'is' in user language means value-equality (same as ==)
-                if left_cmp != right_cmp:
+                # 'is': type comparison, not value comparison — see
+                # _value_matches_type_reference for what the right-hand side can be.
+                if not _value_matches_type_reference(left_cmp, right_cmp, memory_manager):
                     return False
             elif isinstance(operator, ast.IsNot):
-                if left_cmp == right_cmp:
+                if _value_matches_type_reference(left_cmp, right_cmp, memory_manager):
                     return False
             elif isinstance(operator, ast.Lt):
                 if left_cmp >= right_cmp:
@@ -2295,7 +2350,20 @@ def assign_to_variable(target: str, expression: str, memory_manager: MemoryManag
     if target.startswith("$$"):
         assign_target_expression(target[2:], value, memory_manager, current_dir, source_bits=source_bits)
         return
-    normalized_target = target[1:] if target.startswith("$") else target
+    # NOTE: this used to be `target[1:] if target.startswith("$") else target` — stripping
+    # only the leading `$`. That left any OTHER `$` inside the target untouched, e.g. the
+    # index in `$numbers[$j] = ...` — normalized_target came out as "numbers[$j]", which
+    # isn't valid Python syntax (`$` isn't a token), so parse_cached_expression() always
+    # raised SyntaxError for a dynamic-index target. That sent EVERY such assignment down
+    # the except-branch below, which — finding no variable literally named "numbers[$j]" —
+    # silently allocated a new bogus global slot with that exact string as its name instead
+    # of ever touching the array. Net effect: `$arr[$i] = x` inside a loop silently did
+    # nothing to `arr`, while the exact same line with a literal index (`$arr[0] = x`)
+    # worked fine — because a literal index has no inner `$` to mishandle. Using the same
+    # transform evaluate_expression()/assign_target_expression() already use elsewhere
+    # (strip pointer syntax, then every `$` before an identifier) fixes this for good.
+    normalized_target = replace_pointer_syntax(target.strip())
+    normalized_target = re.sub(r"\$(?=[A-Za-z_])", "", normalized_target)
     try:
         parsed = parse_cached_expression(normalized_target)
     except SyntaxError:
@@ -2923,18 +2991,39 @@ def execute_control_block_statement(
     return None
 
 
-def execute_free_statement(line: str, memory_manager: MemoryManager) -> bool:
+def execute_free_statement(line: str, memory_manager: MemoryManager, current_dir: Path) -> bool:
     normalized = line[1:] if line.startswith("$") else line
     if not (normalized.startswith("free ") or normalized.startswith("free(")):
         return False
 
-    target = normalized[4:].strip().strip("()").strip()
-    if target.startswith("$"):
-        target = target[1:]
+    arg_text = normalized[len("free"):].strip()
+    if arg_text.startswith("(") and arg_text.endswith(")"):
+        arg_text = arg_text[1:-1].strip()
+
+    if arg_text.startswith("$$"):
+        # Preferred form: `$free($$name)` — the same `$$` reference syntax used
+        # everywhere else in the language (pointer creation, event.connect(), selective
+        # imports) to mean "a reference to this named symbol", rather than its value.
+        # Freeing whatever it resolves to works uniformly for a plain variable, a
+        # function, a class, or an imported module namespace (`@from ... @as alias`) —
+        # MemoryManager doesn't distinguish slot "kinds" for release purposes, only names.
+        pointer = Pointer(target=arg_text[2:].strip(), memory_manager=memory_manager, current_dir=current_dir)
+        target = pointer.name
+    else:
+        # Backward-compatible form: `$free($name)` / `free name` — at most one leading
+        # `$` to strip, same as before this change.
+        target = arg_text[1:] if arg_text.startswith("$") else arg_text
+        if memory_manager.has(target):
+            current_value = memory_manager.get(target)
+            if isinstance(current_value, Pointer):
+                # `$free($p)` where `p` already holds a pointer (e.g. from an earlier
+                # `var p: ptr = $$init`) — free what IT points to, not the `p` slot itself.
+                target = current_value.name
+
     if memory_manager.has(target):
         memory_manager.release(target)
         return True
-    raise NameError(f"free: variable '{target}' not found")
+    raise NameError(f"free: '{target}' not found")
 
 
 def execute_expand_memory_statement(line: str, memory_manager: MemoryManager, current_dir: Path) -> bool:
@@ -3009,7 +3098,7 @@ def _execute_breakpoint(memory_manager: MemoryManager, current_dir: Path, source
 
 
 def execute_runtime_statement(line: str, memory_manager: MemoryManager, current_dir: Path, source_path: Path | None = None) -> bool:
-    if execute_free_statement(line, memory_manager):
+    if execute_free_statement(line, memory_manager, current_dir):
         return True
     if execute_expand_memory_statement(line, memory_manager, current_dir):
         return True

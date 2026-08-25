@@ -1,0 +1,42 @@
+#!/usr/bin/env Gybin
+
+@from random @use $$_randint
+
+func bubble_sort(numbers: array[int]) -> array[int]
+    var n: int = $numbers.size()
+    var i: int = 0
+
+    while $i < $n
+        var j: int = 0
+        while $j < ($n - $i - 1)
+            if $numbers[$j] > $numbers[$j + 1]
+                var temp: int = $numbers[$j]
+                $numbers[$j] = $numbers[$j + 1]
+                $numbers[$j + 1] = $temp
+            end
+            $j += 1
+        end
+        $i += 1
+    end
+
+    return $numbers
+end
+
+var listed: array[int] = []
+
+func init() -> NULL
+	var repeat: int = $int($_input("Writted a number to repeat the loop: ")) 
+	$reprint("Generating...")
+	
+	for i:int in $range($repeat)
+		$listed.append($_randint(1, 1000))	
+	end
+
+	$reprint(f"Generated Numbers: {listed}", end="\n\n")
+
+	var ordening: array[int] = $bubble_sort($listed)
+
+	$print(f"Ordening Numbers: {ordening}")
+	$breakpoint()
+end
+run
