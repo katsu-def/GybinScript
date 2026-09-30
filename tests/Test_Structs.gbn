@@ -1,0 +1,27 @@
+
+class User
+	var id: int = NULL
+	var name: str[16] = NULL
+	var age: int[8] = NULL
+
+
+	func init(self, id: int, name: str[16], age: int[8]) -> NULL
+		$self.id = $id
+		$self.name = $name
+		$self.age = age
+	end
+end
+
+var table: array[User] = []
+
+
+func generate_id() -> int
+	return $table.size()
+end
+
+func main() -> NULL
+	$table.append($User($generate_id(), "Marta", 23))
+	$print($table)
+end
+
+$main()

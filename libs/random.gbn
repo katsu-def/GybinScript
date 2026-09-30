@@ -1,7 +1,13 @@
 -- Random number generator library for GBN
 
-@use math.gbn
-@use time.gbn
+@from math.gbn @use $$_sqrt, $$_pow, $$_floor, $$_round, $$_clamp, $$_log, $$_sin, $$_cos, $$_mod, $$_PI, $$vec2, $$vec2i, $$vec3, $$vec3i
+-- `color` is NOT imported here: math.gbn never defines/re-exports it (it only
+-- re-exports vec2/vec2i/vec3/vec3i from stdutils), so `@from math.gbn @use $$color`
+-- can never succeed. It doesn't need to be imported anyway — like every stdutils
+-- class, `color` is already available globally in every program (stdutils.gbn is
+-- auto-loaded before any user script runs), so `_random_color()` below can just
+-- use it directly.
+@from time.gbn @use $$_milliseconds
 
 -- Global seed for pseudo-random number generation
 var _random_seed: float = $_milliseconds()
@@ -94,7 +100,7 @@ func _random_sample(_arr: array, _count: float) -> array
 	var _available: array = $_arr.duplicate()
 
 	for _i in range(0, _count_int)
-		var _idx: int = $_int(_random_int(0, _available.size() - 1))
+		var _idx: int = $int(_random_int(0, _available.size() - 1))
 		$_result.push_back($_available[$_idx])
 		$_available.remove($_idx)
 	end
@@ -107,9 +113,9 @@ func _random_shuffle(_arr: array) -> array
 	var _result: array = $_arr.duplicate()
 
 	for _i in range(_result.size() - 1, 0, -1)
-		var _j: int = $_int(_random_int(0, $_i))
+		var _j: int = $int(_random_int(0, $_i))
 		-- Swap
-		var _temp: var = $_result[$_i]
+		var _temp: any = $_result[$_i]
 		$_result[$_i] = $_result[$_j]
 		$_result[$_j] = $_temp
 	end
@@ -352,3 +358,5 @@ end
 func _random_perturb(_value: float, _amount: float) -> float
 	return $_value + $_random_float(-$_amount, $_amount)
 end
+
+

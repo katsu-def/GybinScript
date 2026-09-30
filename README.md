@@ -4,7 +4,7 @@
 
 > [Read this manual in Spanish (README-ES.md)](./README-ES.md)
 
-> **Version:** 1.6.1  
+> **Version:** 1.7  
 > **File extension:** `.gbn`  
 > **Interpreter:** `Core/Gybin` \ `/usr/bin/Gybin`
 > **Execution:** `Gybin (File path: My_script.gbn)`
@@ -82,6 +82,7 @@ Gybin my_script.gbn [options]
 | `--i ICON_PATH` | Icon for the compiled executable (only with `--c`/`--fc`) |
 | `--w` | Enables warning messages (static analysis) |
 | `--nc` | Suppresses all standard output (errors are still displayed) |
+| `--nch` | Disables caching for this run: `#onready` functions always execute and `$preload` always reads from disk — see [§7](#cached-functions-onready-func) and [§18](#caching-and---nch) |
 
 ### Example
 
@@ -105,7 +106,7 @@ GybinScript features six primitive types and two collection types:
 | `NULL` | Null value / absence of value | `NULL` |
 | `array[T,...]` | Typed list of elements | `[1, 2, 3]` |
 | `dict[V,...]` | Typed dictionary of values | `{"a": 1}` |
-| `ptr` | Pointer/reference to another variable, constant, function, or class (see [§15](#15-pointers)) | `$$hp` |
+| `ptr` | Pointer/reference to another variable, constant, function, class, or event; can be narrowed with `ptr[kinds][types]` (see [§15](#15-pointers)) | `$$hp` |
 
 **Automatic Coercions:**
 - An `int` assigned to a `float` is automatically converted to `float`.
@@ -224,6 +225,8 @@ The `#onready` modifier declares a variable before the program starts executing,
 ```
 
 When used, reassignments of the same value are also prevented.
+
+> `#onready` can also be placed before a function, where it caches the function's results instead — see [Cached Functions](#cached-functions-onready-func).
 
 ### `#reserved`
 
@@ -384,6 +387,89 @@ end
 ```
 
 > ! The same width-matching rule applies to arguments: callers passing a variable declared with a different explicit bit width than the parameter must convert it explicitly first.
+
+### Cached Functions (`#onready func`)
+
+Placing `#onready` before a function caches its results: the first call with a given set of arguments runs the body, and any later call with exactly the same arguments returns the stored result without running it again.
+
+```gbn
+#onready func square(n: int) -> int
+    $print("computing...")
+    return $n * $n
+end
+
+$print($square(4))   -- computing... / 16
+$print($square(4))   -- 16 (from cache)
+$print($square(5))   -- computing... / 25
+```
+
+- Every distinct set of arguments has its own cached result.
+- On a class method, each instance keeps its own cache.
+- A cached call does not repeat the function's side effects (prints, file writes...), so it fits functions that return the same result for the same arguments.
+- Run with `--nch` to disable caching entirely for that execution.
+
+### Rest Parameters (`!`)
+
+A parameter whose name starts with `!` collects the arguments it receives into an array:
+
+```gbn
+func sum(!values[10]: int) -> int
+    var total: int = 0
+    for n in $values
+        $total += $n
+    end
+    return $total
+end
+
+$print($sum(1, 2, 3, 4))   -- 10
+$print($sum())             -- 0
+```
+
+- `[10]` (optional) sets how many values it can hold, and `: int` (optional) the type of each one — the same rules as `array[int][10]`.
+- A function can have only one `!` parameter, and it must be the last one. Any parameters before it receive their arguments first, and the `!` parameter collects the rest:
+
+```gbn
+func report(title: str, !lines: str) -> NULL
+    $print($title)
+    for line in $lines
+        $print(" - " + $line)
+    end
+end
+
+$report("Log", "started", "loaded", "done")
+```
+
+### Named Parameters (`?`)
+
+A parameter marked with `?` is filled by name when calling the function, written as `$name=value`:
+
+```gbn
+func set_modulate(?r: float, ?g: float, ?b: float, a: float) -> color
+    return $color($r, $g, $b, $a)
+end
+
+var c: color = $set_modulate(1.0, $r=0.6, $g=0.3, $b=0.9)
+```
+
+- The `$` before the name is required.
+- Only parameters marked with `?` can be given by name; using a name that doesn't match one is an error.
+- A `?` parameter that isn't given stays `NULL`.
+- Class constructors work the same way: if `init` declares `?hp: int`, then `$Player($hp=50)` fills it.
+
+### Named Rest Parameters (`?!`)
+
+Combining both markers makes a named parameter that collects an array. Unlike a plain `!`, a function may declare several `?!` parameters, since each one is filled by name with its own array:
+
+```gbn
+func groups(?!a: int, ?!b: int) -> NULL
+    $print($a)   -- [1, 2, 3]
+    $print($b)   -- [4, 5]
+end
+
+$groups($a=[1, 2, 3], $b=[4, 5])
+```
+
+A plain `!` parameter can't be combined with `?!` parameters in the same function.
 
 ### Main Function (`init`) and `run`
 
@@ -645,6 +731,8 @@ else
 end
 ```
 
+`elif` is also accepted as a shorthand for `elseif`.
+
 ### `while` Loop
 
 ```gbn
@@ -739,11 +827,87 @@ except
 end
 ```
 
+Without any type, `catch`/`except` handles every error. An empty `catch`/`except` body is valid: it silences the error and does nothing else.
+
+### Catching Specific Error Types
+
+Follow `catch`/`except` with one or more error types to handle only those. Each type is written as a pointer (`$$Type`) and several are separated by commas. Any other error keeps propagating as usual:
+
+```gbn
+try
+    var y: any = $undeclared
+except $$NameError
+    $print("undeclared variable")
+end
+
+try
+    -- code that may fail
+except $$SyntaxError, $$ValueError
+    $print("syntax or value problem")
+end
+```
+
+Catching a general type also catches the more specific ones it groups: `$$LookupError` handles both `IndexError` and `KeyError`, for example.
+
+### Saving the Error (`-> name`)
+
+Add `-> name` at the end of the header to save the error in a variable. It holds a string with the error type, where it happened, and the message:
+
+```gbn
+try
+    var y: any = $undeclared
+catch -> e
+    $print($e)   -- NameError: game.gbn:3:3: Variable not declared: undeclared
+end
+```
+
+It combines with types:
+
+```gbn
+except $$ValueError, $$TypeError -> e
+```
+
+### Error Types
+
+Every error shows its type at the start of the message instead of a generic `Error:`:
+
+```
+NameError: game.gbn:12:3: Variable not declared: x
+```
+
+| Type | Raised when |
+|------|-------------|
+| `NameError` | A variable, function, or class isn't declared |
+| `TypeError` | A value has the wrong type or an operation isn't valid for it |
+| `ValueError` | A value is not acceptable |
+| `SyntaxError` | The code is malformed (for example, a block without `end`) |
+| `IndexError` | An array index is out of range |
+| `KeyError` | A dictionary key doesn't exist |
+| `LookupError` | Groups `IndexError` and `KeyError` |
+| `GybinError` | Groups the three language-specific errors below |
+| `EventError` | An [event](#16-events) is used incorrectly — for example, connecting something that isn't a function reference. Also handled by `$$TypeError` |
+| `PointerError` | A [pointer](#15-pointers) is used incorrectly, or doesn't match its `ptr[...]` annotation. Also handled by `$$TypeError` |
+| `BitWidthError` | A value doesn't fit an `int[N]`/`float[N]`, or a coercion mixes different widths (see [§3](#3-data-types)). Also handled by `$$ValueError` |
+
+```gbn
+try
+    var small: int[8] = 500
+except $$BitWidthError -> e
+    $print($e)
+end
+
+try
+    $player_is_dead.connect(5)
+except $$GybinError -> e
+    $print("event, pointer or bit width problem: " + $e)
+end
+```
+
 ---
 
 ## 15. Pointers
 
-The `$$` operator creates a pointer to an existing variable, constant, function, or class (e.g., `$$hp`, `$$Damage`, `$$self.hp`, `$$arr[0]`). It is typed using `ptr` — the only type annotation that can hold a pointer value:
+The `$$` operator creates a pointer to an existing variable, constant, function, class, or event (e.g., `$$hp`, `$$Damage`, `$$self.hp`, `$$arr[0]`, `$$player_is_dead`). It is typed using `ptr` — the only type annotation that can hold a pointer value:
 
 ```gbn
 var hp: int = 100
@@ -793,6 +957,46 @@ $fp.call("Carlos")   -- Hello Carlos
 
 Pointers enable indirect access and can target complex paths (`$$object.field`, `$$array[0]`). They are useful for aliasing, dynamic references, and passing function references (for instance, when attaching handlers to an [event](#16-events)).
 
+### Typed Pointers: `ptr[kinds][types]`
+
+A plain `ptr` accepts a pointer to anything. Two optional brackets narrow it down:
+
+- **First bracket — what it can point to:** `var`, `const`, `event`, `func`, `class` (separate several with commas).
+- **Second bracket — the data type it must hold:** `int`, `str`, a class name, etc. (separate several with commas).
+
+An empty bracket, or `any` inside it, means no restriction on that part.
+
+```gbn
+var p1: ptr[func] = $$greet                 -- only functions
+var p2: ptr[var,const][int,float] = $$hp     -- a variable or constant holding an int or float
+var p3: ptr[var][Fighter] = $$hero           -- a variable holding a Fighter instance
+var p4: ptr[event] = $$player_is_dead        -- only events
+var p5: ptr[] = $$hp                          -- same as a plain ptr
+var p6: ptr[any][any] = $$hp                  -- same as a plain ptr
+```
+
+For classes, the second bracket says which class (or classes) it accepts: the named class itself or any class that extends it.
+
+```gbn
+class Fighter
+    var hp: int = 10
+end
+
+class Warrior extends Fighter
+    var armor: int = 5
+end
+
+class Enemy
+    var atk: int = 5
+end
+
+var a: ptr[class][Fighter] = $$Warrior          -- OK: Warrior extends Fighter
+var b: ptr[class][Fighter,Enemy] = $$Enemy      -- OK
+var c: ptr[class][Fighter] = $$Enemy            -- PointerError
+```
+
+A pointer that doesn't match its annotation raises a `PointerError` (see [§14](#14-error-handling)).
+
 ### Raw Address Pointers
 
 A `ptr` can also be constructed from a raw integer address instead of `$$target`:
@@ -829,14 +1033,17 @@ event player_is_dead(entity: str)
 
 Type annotations on parameters serve strictly as documentation — an event has no body against which to validate them.
 
-### `.connect(handler)` and `.emit(...)`
+### Methods
 
-Every event exposes two methods, both called using the `$` prefix like any other call:
+Every event exposes the following, all used with the `$` prefix like any other call:
 
-| Method | Description |
+| Member | Description |
 |--------|-------------|
-| `.connect(handler)` | Registers a function to execute whenever the event fires. `handler` must be a function reference created using `$$function_name` — passing just the function name causes an error |
+| `.connect(handler)` | Registers a function to execute whenever the event fires. `handler` must be a pointer to a function created with `$$function_name`; the bare name, or a pointer to anything else (a variable, class, event...), causes an `EventError` |
+| `.disconnect(handler)` | Removes that handler from the event. Does nothing if it wasn't connected |
+| `.reconnect(handler)` | Disconnects and connects the handler again, so it ends up connected exactly once — useful to avoid running it twice on each `.emit()` |
 | `.emit(args...)` | Calls each connected handler in the order they were attached, forwarding provided arguments. Argument count must match the parameter count declared by the event |
+| `.last_connection` | Property (no parentheses): a pointer to the most recently connected handler, or `NULL` if none is connected |
 
 ```gbn
 event player_is_dead(entity: str)
@@ -853,6 +1060,40 @@ end
 ```
 
 Multiple handlers can be connected to the same event; all will execute in the order attached when `.emit(...)` is called.
+
+`.disconnect(...)` takes any pointer to the same function, so you don't need to keep the one used to connect:
+
+```gbn
+$player_is_dead.disconnect($$on_player_dead)
+```
+
+```gbn
+$player_is_dead.connect($$on_player_dead)
+$player_is_dead.connect($$on_player_dead)     -- connected twice: runs twice per emit
+$player_is_dead.reconnect($$on_player_dead)   -- now connected exactly once
+
+$print($player_is_dead.last_connection.name)  -- on_player_dead
+```
+
+### Events as Conditions
+
+An event can be used directly as a condition: it is `false` until the first time it is emitted and `true` from then on.
+
+```gbn
+event level_loaded(name: str)
+
+func init() -> NULL
+    if $level_loaded
+        $print("not printed yet")
+    end
+
+    $level_loaded.emit("Forest")
+
+    if $level_loaded
+        $print("printed: the event has been emitted")
+    end
+end
+```
 
 ---
 
@@ -943,6 +1184,12 @@ Explicitly removes a variable from scope:
 $free($$my_data) 
 ```
 
+`free` accepts one or several pointers of any kind (variables, constants, functions, classes, events), separated by commas:
+
+```gbn
+$free($$first, $$second, $$third)
+```
+
 ### `expand_memory` — Expanding the Limit
 
 Increases the maximum number of available slots:
@@ -971,6 +1218,19 @@ while $i < 10000
     var x = ($i * 5) + (20 / 2)  -- expression is cached
     $i += 1
 end
+```
+
+### Caching and `--nch`
+
+Two features store results to save work on repeated use:
+
+- **`#onready func`** remembers a function's result for each distinct set of arguments (see [§7](#cached-functions-onready-func)).
+- **`$preload(path)`** reads a file once and remembers its content (see [§19](#19-native-functions-built-ins)).
+
+Run with `--nch` to turn both off for that execution: cached functions always run their body, and `$preload` always reads from disk.
+
+```bash
+Gybin my_script.gbn --nch
 ```
 
 ### Post-execution Garbage Collector
@@ -1006,6 +1266,7 @@ These functions are available without importing anything:
 | `$file_write(path, content)` | Writes (overwrites) a file |
 | `$file_append(path, content)` | Appends content to the end of a file |
 | `$file_exists(path)` | Returns `true` if the file exists |
+| `$preload(path)` | Reads a file like `$file_read`, but remembers its content — see below |
 
 ### Named Arguments in `$print`
 
@@ -1015,6 +1276,17 @@ These functions are available without importing anything:
 $print("a", "b", sep="-", end="")   -- a-b, no trailing newline
 $print("c")
 ```
+
+### `$preload` — Reading a File Once
+
+`$preload(path)` returns the whole content of a file as a string, just like `$file_read(path)`. The difference is that it remembers the result for that path: later calls with the same path return the stored content instantly without touching the disk again, even if the file changed in the meantime.
+
+```gbn
+var config: str = $preload("config.txt")   -- reads the file
+var again: str = $preload("config.txt")    -- returns the stored content
+```
+
+Run with `--nch` to make every `$preload` read from disk.
 
 ### `$reprint` — Updating a Line in Place
 

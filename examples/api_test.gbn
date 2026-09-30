@@ -1,0 +1,6 @@
+#!/usr/bin/Gybin
+@use http
+
+var r: dict = $_http_get("https://api.github.com/octocat")
+$print(r["status"], r["ok"], r["body"])
+

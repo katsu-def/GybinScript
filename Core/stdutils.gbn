@@ -1,7 +1,8 @@
+-- stdutils.gbn
 -- Standar library
 
 class Engine
-  const VERSION: str[8] = "1.6.1"
+  const VERSION: str[8] = "1.7"
   const AUTHOR: str[10] = "Katsu Dev"
 end
 
@@ -90,6 +91,8 @@ class vec3i
 	end
 end
 
+enum Color = {YELLOW, BLUE, RED, GREEN, VIOLET, PURPLE, MAGENTA, PINK, SKYBLUE, BLACK, WHITE, GRAY, ORANGE, LIME}
+
 
 class color
 	var r: float = NULL
@@ -97,23 +100,73 @@ class color
 	var b: float = NULL
 	var a: float = NULL
 
-	func init(r: float, g: float, b: float, a: float) -> NULL
+	func init(r: float, g: float, b: float, a: float, ?preset: Color) -> NULL
+		if $preset is NULL
+			$define($r, $g, $b, $a)
+			
+		else
+			match $preset
+				case $Color.BLACK
+					$define(0.0, 0.0, 0.0, 1.0)
+					
+				case $Color.BLUE
+					$define(0.0, 0.0, 1.0, 1.0)
+					
+				case $Color.GREEN
+					$define(0.0, 1.0, 0.0, 1.0)
+						
+				case $Color.GRAY
+					$define(0.74509805, 0.74509805, 0.74509805, 1.0)
+					
+				case $Color.ORANGE
+					$define(1.0, 0.64705884, 0.0, 1.0)
+					
+				case $Color.PINK
+					$define(1.0, 0.7529412, 0.79607844, 1.0)
+
+				case $Color.PURPLE
+					$define(0.627451, 0.1254902, 0.9411765, 1.0)
+
+				case $Color.RED
+					$define(1.0, 0.0, 0.0, 1.0)	
+
+				case $Color.SKYBLUE
+					$define(0.5294118, 0.80784315, 0.92156863, 1.0)
+
+				case $Color.WHITE
+					$define(1.0, 1.0, 1.0, 1.0)
+
+				case $Color.VIOLET
+					$define(0.93333334, 0.50980395, 0.93333334, 1.0)
+
+				case $Color.YELLOW
+					$define(1.0, 1.0, 0.0, 1.0)
+
+				case $Color.MAGENTA
+					$define(1.0, 0.0, 1.0, 1.0)
+
+				case $Color.LIME
+					$define(0.0, 1.0, 0.0, 1.0)
+					
+			end
+
+		end
+	end
+
+	func define(r: float, g: float, b: float, a: float) -> NULL
 		$self.r = $max($min($r, 0), 1.0)
 		$self.g = $max($min($g, 0), 1.0)
 		$self.b = $max($min($b, 0), 1.0)
-
-		--var result: array[float][4] = []
-		if $a == NULL
+		
+		if $a is NULL
 			$self.a = 1.0
-
-			--$result = [$r, $g, $b, $self.a]
-			--return $result
+		
 		else
 			$self.a = $max($min($a, 0), 1.0)
-			--$result = [$r, $g, $b, $self.a]
-			--return $result
+
 		end
 	end
+
 end
 
 

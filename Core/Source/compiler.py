@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# (C) 2025 - 2026 Kātsu D. <jensaki152@gmail.com>
+
 # ALL:
 # Este archivo encapsula la generacion de ejecutables.
 # `_create_wrapper_executable` crea un wrapper cuando PyInstaller no esta

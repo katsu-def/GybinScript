@@ -145,8 +145,15 @@ def json_dump(entry: dict) -> str:
     return json.dumps(entry, indent=4)
 
 
-def json_load(files: str):
-    return json.load(files)
+def json_load(path: str):
+    # BUGFIX (Katsuo): this used to do `json.load(files)`, which requires an
+    # open file OBJECT (something with a `.read()` method) — but json.gbn's
+    # `_load(_file: str)` always calls it with a path STRING (that's the only
+    # thing GybinScript ever passes in). Every call used to fail with
+    # "'str' object has no attribute 'read'". Opening the path here is what
+    # `_load()` was always meant to do.
+    with open(path, "r", encoding="utf-8") as _file:
+        return json.load(_file)
 
 
 def json_read(entry: str):
@@ -174,3 +181,5 @@ def key_record(keys):
 def key_play(reg):
     keyboard.play(reg)
 """
+
+

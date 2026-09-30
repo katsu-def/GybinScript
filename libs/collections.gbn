@@ -1,0 +1,171 @@
+-- Collections library for GBN
+-- Generic-ish container types built on top of the language's dynamic arrays.
+
+class Stack
+	var items: array = []
+
+	func push(value: any) -> NULL
+		$self.items.push_back($value)
+	end
+
+	func pop() -> any
+		if $self.items.size() == 0
+			return NULL
+		end
+		return $self.items.remove($self.items.size() - 1)
+	end
+
+	func peek() -> any
+		if $self.items.size() == 0
+			return NULL
+		end
+		return $self.items[$self.items.size() - 1]
+	end
+
+	func is_empty() -> bool
+		return $self.items.size() == 0
+	end
+
+	func size() -> int
+		return $self.items.size()
+	end
+
+	func clear() -> NULL
+		$self.items = []
+	end
+end
+
+
+class Queue
+	var items: array = []
+
+	func enqueue(value: any) -> NULL
+		$self.items.push_back($value)
+	end
+
+	func dequeue() -> any
+		if $self.items.size() == 0
+			return NULL
+		end
+		return $self.items.remove(0)
+	end
+
+	func peek() -> any
+		if $self.items.size() == 0
+			return NULL
+		end
+		return $self.items[0]
+	end
+
+	func is_empty() -> bool
+		return $self.items.size() == 0
+	end
+
+	func size() -> int
+		return $self.items.size()
+	end
+
+	func clear() -> NULL
+		$self.items = []
+	end
+end
+
+
+class PriorityQueue
+	var items: array = []
+	var priorities: array = []
+
+	func push(value: any, priority: float) -> NULL
+		$self.items.push_back($value)
+		$self.priorities.push_back($priority)
+	end
+
+	func is_empty() -> bool
+		return $self.items.size() == 0
+	end
+
+	func size() -> int
+		return $self.items.size()
+	end
+
+	func pop() -> any
+		if $self.items.size() == 0
+			return NULL
+		end
+
+		var best_index: int = 0
+		var best_priority: float = $self.priorities[0]
+
+		for i in range(1, $self.items.size())
+			if $self.priorities[$i] < $best_priority
+				$best_priority = $self.priorities[$i]
+				$best_index = $i
+			end
+		end
+
+		var value: any = $self.items.remove($best_index)
+		$self.priorities.remove($best_index)
+		return $value
+	end
+end
+
+
+class Grid
+	var width: int = 0
+	var height: int = 0
+	var cells: array = []
+
+	func init(width: int, height: int, fill: any) -> NULL
+		$self.width = $width
+		$self.height = $height
+		$self.cells = []
+
+		for i in range(0, $width * $height)
+			$self.cells.push_back($fill)
+		end
+	end
+
+	func in_bounds(x: int, y: int) -> bool
+		return $x >= 0 and $x < $self.width and $y >= 0 and $y < $self.height
+	end
+
+	func get(x: int, y: int) -> any
+		if not $self.in_bounds($x, $y)
+			return NULL
+		end
+		return $self.cells[$y * $self.width + $x]
+	end
+
+	func set(x: int, y: int, value: any) -> bool
+		if not $self.in_bounds($x, $y)
+			return false
+		end
+		$self.cells[$y * $self.width + $x] = $value
+		return true
+	end
+
+	func fill(value: any) -> NULL
+		for i in range(0, $self.cells.size())
+			$self.cells[$i] = $value
+		end
+	end
+
+	func neighbors4(x: int, y: int) -> array
+		var result: array = []
+		if $self.in_bounds($x - 1, $y)
+			$result.push_back($vec2i($x - 1, $y))
+		end
+		if $self.in_bounds($x + 1, $y)
+			$result.push_back($vec2i($x + 1, $y))
+		end
+		if $self.in_bounds($x, $y - 1)
+			$result.push_back($vec2i($x, $y - 1))
+		end
+		if $self.in_bounds($x, $y + 1)
+			$result.push_back($vec2i($x, $y + 1))
+		end
+		return $result
+	end
+end
+
+

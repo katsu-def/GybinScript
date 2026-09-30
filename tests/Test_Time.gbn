@@ -1,0 +1,16 @@
+#!/usr/bin/Gybin
+
+@use time
+
+func init() -> NULL
+	$_create_timer(10)
+	await $_timeout
+	$print("Imprimiendo en 10s...")
+
+	$_create_timer(3)
+	await $_timeout
+	$print("Imprimiendo en 3s...")
+	
+end
+
+$init()

@@ -1,0 +1,43 @@
+-- archive.gbn
+
+func _clamp_int(value: int, low: int, high: int) -> int
+    if $value < $low
+        return $low
+    end
+    if $value > $high
+        return $high
+    end
+    return $value
+end
+
+func _manhattan(ax: int, ay: int, bx: int, by: int) -> int
+    var dx: int = $ax - $bx
+    var dy: int = $ay - $by
+    if $dx < 0
+        $dx = -$dx
+    end
+    if $dy < 0
+        $dy = -$dy
+    end
+    return $dx + $dy
+end
+
+func _cell_key(x: int, y: int) -> str
+    return $str($x) + "," + $str($y)
+end
+
+func _make_banner(title: str, width: int) -> str
+    var line: str = ""
+    for _i in range(0, $width)
+        $line = $line + "="
+    end
+    return $line + "\n" + $title + "\n" + $line
+end
+
+func _stars(count: int) -> str
+    var result: str = ""
+    for _i in range(0, $count)
+        $result = $result + "*"
+    end
+    return $result
+end

@@ -1,0 +1,202 @@
+-- Strings library for GBN
+-- Extends stdutils' minimal string helpers (str_split/str_join/to_lower/to_upper/
+-- starts_with/ends_with) with formatting, comparison and small text-algorithm utilities.
+-- Everything here is written with plain indexing/loops instead of slice syntax
+-- (`text[1:]`), since GybinScript's subscript operator does not support slices yet.
+
+func _reverse(_text: str) -> str
+	var _result: str = ""
+	var _i: int = $len($_text) - 1
+
+	while $_i >= 0
+		$_result = $_result + $_text[$_i]
+		$_i = $_i - 1
+	end
+
+	return $_result
+end
+
+
+func _is_palindrome(_text: str) -> bool
+	var _clean: str = $_text.lower().replace(" ", "")
+	return $_clean == _reverse($_clean)
+end
+
+
+func _capitalize(_text: str) -> str
+	if $len($_text) == 0
+		return $_text
+	end
+
+	var _first: str = $_text[0].upper()
+	var _rest: str = ""
+	var _i: int = 1
+
+	while $_i < $len($_text)
+		$_rest = $_rest + $_text[$_i]
+		$_i = $_i + 1
+	end
+
+	return $_first + $_rest.lower()
+end
+
+
+func _title_case(_text: str) -> str
+	var _words: array = $_text.split(" ")
+	var _result: array = []
+
+	for word in $_words
+		$_result.push_back(_capitalize($word))
+	end
+
+	return " ".join($_result)
+end
+
+
+func _count_occurrences(_text: str, _sub: str) -> int
+	return $_text.count($_sub)
+end
+
+
+func _pad_left(_text: str, _width: int, _fill: str) -> str
+	if $_fill is NULL
+		$_fill = " "
+	end
+
+	var _result: str = $_text
+	while $len($_result) < $_width
+		$_result = $_fill + $_result
+	end
+
+	return $_result
+end
+
+
+func _pad_right(_text: str, _width: int, _fill: str) -> str
+	if $_fill is NULL
+		$_fill = " "
+	end
+
+	var _result: str = $_text
+	while $len($_result) < $_width
+		$_result = $_result + $_fill
+	end
+
+	return $_result
+end
+
+
+func _trim(_text: str) -> str
+	return $_text.strip()
+end
+
+
+func _repeat(_text: str, _times: int) -> str
+	var _result: str = ""
+	var _i: int = 0
+
+	while $_i < $_times
+		$_result = $_result + $_text
+		$_i = $_i + 1
+	end
+
+	return $_result
+end
+
+
+func _contains_substr(_text: str, _sub: str) -> bool
+	return $_sub in $_text
+end
+
+
+-- Levenshtein edit distance: minimum single-character insert/delete/substitute
+-- edits to turn `_a` into `_b`. Classic O(n*m) dynamic-programming table, built
+-- as an array-of-arrays since GBN has no native 2D array literal.
+func _levenshtein(_a: str, _b: str) -> int
+	var _len_a: int = $len($_a)
+	var _len_b: int = $len($_b)
+
+	var _table: array = []
+	var _i: int = 0
+	while $_i <= $_len_a
+		var _row: array = []
+		var _j: int = 0
+		while $_j <= $_len_b
+			$_row.push_back(0)
+			$_j = $_j + 1
+		end
+		$_table.push_back($_row)
+		$_i = $_i + 1
+	end
+
+	$_i = 0
+	while $_i <= $_len_a
+		$_table[$_i][0] = $_i
+		$_i = $_i + 1
+	end
+
+	var _j: int = 0
+	while $_j <= $_len_b
+		$_table[0][$_j] = $_j
+		$_j = $_j + 1
+	end
+
+	$_i = 1
+	while $_i <= $_len_a
+		$_j = 1
+		while $_j <= $_len_b
+			var _cost: int = 1
+			if $_a[$_i - 1] == $_b[$_j - 1]
+				$_cost = 0
+			end
+
+			var _delete_cost: int = $_table[$_i - 1][$_j] + 1
+			var _insert_cost: int = $_table[$_i][$_j - 1] + 1
+			var _substitute_cost: int = $_table[$_i - 1][$_j - 1] + $_cost
+
+			var _best: int = $_delete_cost
+			if $_insert_cost < $_best
+				$_best = $_insert_cost
+			end
+			if $_substitute_cost < $_best
+				$_best = $_substitute_cost
+			end
+
+			$_table[$_i][$_j] = $_best
+			$_j = $_j + 1
+		end
+		$_i = $_i + 1
+	end
+
+	return $_table[$_len_a][$_len_b]
+end
+
+
+-- Mutable text accumulator: building a string with repeated `+` on large text is
+-- O(n^2) since every `+` allocates a new copy; this keeps pieces in an array and
+-- joins once in to_string(), the way string builders work in most languages.
+class StringBuilder
+	var parts: array = []
+
+	func append(text: str) -> NULL
+		$self.parts.push_back($text)
+	end
+
+	func append_line(text: str) -> NULL
+		$self.parts.push_back($text + "\n")
+	end
+
+	func to_string() -> str
+		return "".join($self.parts)
+	end
+
+	func length() -> int
+		return $len($self.to_string())
+	end
+
+	func clear() -> NULL
+		$self.parts = []
+	end
+end
+
+

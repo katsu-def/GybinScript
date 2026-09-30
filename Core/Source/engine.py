@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# (C) 2025 - 2026 Kātsu D. <jensaki152@gmail.com>
+
 from __future__ import annotations
 # ALL:
 # Este es el motor del lenguaje.
@@ -26,13 +28,14 @@ from __future__ import annotations
 # puntero, sin importar quien llame.
 
 import ast
+import builtins
 import re
 import struct
 import sys
 import time
 import importlib.util
 import types
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +44,7 @@ from Core.native_io import BUILTIN_FUNCTIONS, read_file, read_lines
 from Core.runtime import (
     EXTFILE,
     MAX_MEMORY_SLOTS,
+    PTR_KIND_KEYWORDS,
     SUPPORTED_IMPORT_EXTS,
     TYPE_MAP,
     Value,
@@ -112,6 +116,37 @@ class LoopSignal(Exception):
 class Interrupt(Exception):
     pass
 
+
+class GybinError(Exception):
+    """Common base for every GybinScript-*feature*-specific error below (EventError,
+    PointerError, BitWidthError) — as opposed to the plain Python exceptions
+    (NameError, TypeError, ValueError, ...) already raised throughout this file for
+    ordinary mistakes (undeclared variable, wrong argument count, ...). Lets a script
+    catch `except GybinError -> e` to mean specifically "something about an event,
+    pointer, or bit-width-typed value went wrong", without also swallowing every
+    other kind of error the same broad `except TypeError`/`except ValueError` would.
+    Each subclass below still also inherits the closest matching plain Python type
+    (TypeError/ValueError), so an existing `except TypeError -> e` written before
+    these subclasses existed keeps catching exactly what it always caught."""
+
+
+class EventError(GybinError, TypeError):
+    """`.connect()`/`.disconnect()`/`.reconnect()` called with something other than a
+    `$$function_name` pointer, or with a pointer to something that isn't callable."""
+
+
+class PointerError(GybinError, TypeError):
+    """Pointer (`$$target`) misuse: assigning through a pointer to a function, class,
+    constant, or `#reserved` name; calling a pointer to something not callable;
+    constructing a pointer with neither a target expression nor a raw address."""
+
+
+class BitWidthError(GybinError, ValueError):
+    """`int[N]`/`float[N]` misuse: a value that doesn't fit the declared bit width
+    (overflow), or an implicit int<->float coercion across two DIFFERENT declared
+    widths (e.g. assigning a float[32] into an int[64] slot with no explicit convert)."""
+
+
 class ParserError(Exception):
     def __init__(self, message: str, file_path: Path | None = None, line: int | None = None, column: int | None = None, original: Exception | None = None) -> None:
         self.file_path = file_path
@@ -164,6 +199,117 @@ def _wrap_parser_error(exc: Exception, file_path: Path | None = None, line: int 
     if column is None:
         column = 1
     return ParserError(message, file_path=file_path, line=line, column=column, original=exc)
+
+
+# Control-flow signals `return`/`break`/`continue`/`loop` use ordinary Python
+# exceptions internally (see ReturnSignal/BreakSignal/ContinueSignal/LoopSignal above),
+# which makes them `Exception` subclasses like any real error. A `try`/`catch` must
+# never intercept these — a `return` written inside a `try` block should still return,
+# not get silently swallowed and treated as an error the `catch` suppressed.
+_CONTROL_FLOW_SIGNALS = (ReturnSignal, BreakSignal, ContinueSignal, LoopSignal)
+
+
+def _underlying_error(exc: Exception) -> Exception:
+    """The real error a wrapped ParserError carries (see process_source_lines, which
+    wraps every statement-level exception into one, tagging file/line/column), for
+    error-type matching and reporting. Anything not a ParserError is already the
+    real thing (e.g. a raw exception surfaced before it reached that wrapping point)."""
+    if isinstance(exc, ParserError) and exc.original is not None:
+        return exc.original
+    return exc
+
+
+def _error_type_name(exc: Exception) -> str:
+    """The GBN-facing name for an error's type — just the underlying Python
+    exception class's own name (NameError, ValueError, TypeError, ...), so the
+    names already used throughout this file to raise real errors ARE the names a
+    script matches against in `except SomeType -> e` and sees printed for an
+    uncaught error, with no separate name mapping to keep in sync."""
+    return type(_underlying_error(exc)).__name__
+
+
+_CUSTOM_ERROR_TYPES: dict[str, type[BaseException]] = {
+    "GybinError": GybinError,
+    "EventError": EventError,
+    "PointerError": PointerError,
+    "BitWidthError": BitWidthError,
+}
+
+
+def _error_type_matches(exc: Exception, requested_name: str) -> bool:
+    """True if `exc` (a possibly-ParserError-wrapped exception) should be caught by
+    an `except requested_name -> ...` / `catch requested_name -> ...` clause.
+    `requested_name` is resolved first against GybinScript's own feature-specific
+    error classes (GybinError/EventError/PointerError/BitWidthError — not in Python's
+    `builtins`, so they need their own lookup here), then against Python's own builtin
+    exception hierarchy (e.g. `except LookupError` catches both IndexError and
+    KeyError, since both are real subclasses of LookupError) — not just an exact name
+    match — so catching a whole family of errors works the same way it does in Python
+    itself. A name that isn't a recognized type either way falls back to a plain name
+    comparison instead of raising, so an unrecognized/typo'd type name just never
+    matches rather than crashing the catch machinery itself.
+    """
+    real = _underlying_error(exc)
+    candidate = _CUSTOM_ERROR_TYPES.get(requested_name) or getattr(builtins, requested_name, None)
+    if isinstance(candidate, type) and issubclass(candidate, BaseException):
+        return isinstance(real, candidate)
+    return type(real).__name__ == requested_name
+
+
+def format_error(exc: Exception) -> str:
+    """The top-level message shown for an uncaught error — e.g.
+    'NameError: script.gbn:12:3: Variable not declared: x' — using the real error's
+    own type name instead of the generic word 'Error', so which of GybinScript's
+    error classes actually happened is visible at a glance, not just that
+    *something* went wrong. `str(exc)` still carries the file:line:column prefix
+    when `exc` is the usual ParserError wrapper (see ParserError.__str__)."""
+    return f"{_error_type_name(exc)}: {exc}"
+
+
+def parse_catch_header(header: str) -> tuple[list[str], str | None]:
+    """Parse a `catch`/`except` header line into (error_type_names, capture_var).
+
+    Accepted forms (the bare keyword alone, or followed by any combination of a
+    comma-separated type list and a `-> name` capture clause). Each error type is
+    written as a POINTER (`$$TypeName`) — the same `$$name` convention used
+    everywhere else in the language to mean "this name itself", never its value —
+    so a type name here can never collide with an ordinary variable/function of the
+    same name in scope, and reads consistently with `event.connect($$handler)`,
+    `free($$x)`, etc.:
+      catch                                         -> ([], None)            -- suppresses everything
+      catch -> e                                    -> ([], "e")             -- suppresses everything, captures it
+      except $$ValueError                           -> (["ValueError"], None)
+      except $$SyntaxError, $$ValueError -> e       -> (["SyntaxError", "ValueError"], "e")
+
+    An empty type list means "suppress every error type" (the original, untyped
+    behavior) — only a non-empty list restricts what gets caught.
+    """
+    rest = header.strip()
+    for keyword in ("except", "catch"):
+        if rest == keyword:
+            rest = ""
+            break
+        if rest.startswith(keyword + " "):
+            rest = rest[len(keyword):].strip()
+            break
+    capture_var: str | None = None
+    if "->" in rest:
+        types_part, _, var_part = rest.partition("->")
+        capture_var = var_part.strip() or None
+        rest = types_part.strip()
+    error_types_raw = [t.strip() for t in rest.split(",") if t.strip()] if rest else []
+    error_types: list[str] = []
+    for raw in error_types_raw:
+        if not raw.startswith("$$"):
+            raise SyntaxError(
+                f"Invalid error type '{raw}' in catch/except: error types are given as a "
+                f"pointer, e.g. 'except $$ValueError -> e' (found bare '{raw}', missing '$$')"
+            )
+        name = raw[2:].strip()
+        if not name:
+            raise SyntaxError("Invalid error type '$$' in catch/except: missing a type name after '$$'")
+        error_types.append(name)
+    return error_types, capture_var
 
 
 # int[N] / float[N] (see source_tools.parse_annotation): the declared bit width
@@ -243,7 +389,7 @@ class MemoryManager:
                 target_bits = _effective_numeric_bits(max_size)
                 source_eff_bits = _effective_numeric_bits(source_bits)
                 if target_bits != source_eff_bits:
-                    raise TypeError(
+                    raise BitWidthError(
                         f"Cannot implicitly convert a {source_eff_bits}-bit float to int[{target_bits}] "
                         f"for '{name}': bit widths differ (use matching widths, e.g. int[{source_eff_bits}], "
                         f"or convert explicitly)."
@@ -251,12 +397,12 @@ class MemoryManager:
                 if value.is_integer():
                     value = int(value)
                 else:
-                    raise TypeError(f"Cannot assign float with fractional part to {name}: {normalized_type}")
+                    raise BitWidthError(f"Cannot assign float with fractional part to {name}: {normalized_type}")
             if normalized_type == "float" and isinstance(value, int):
                 target_bits = _effective_numeric_bits(max_size)
                 source_eff_bits = _effective_numeric_bits(source_bits)
                 if target_bits != source_eff_bits:
-                    raise TypeError(
+                    raise BitWidthError(
                         f"Cannot implicitly convert a {source_eff_bits}-bit int to float[{target_bits}] "
                         f"for '{name}': bit widths differ (use matching widths, e.g. float[{source_eff_bits}], "
                         f"or convert explicitly)."
@@ -416,7 +562,7 @@ class MemoryManager:
                         target_bits = _effective_numeric_bits(slot.max_size)
                         source_eff_bits = _effective_numeric_bits(source_bits)
                         if target_bits != source_eff_bits:
-                            raise TypeError(
+                            raise BitWidthError(
                                 f"Cannot implicitly convert a {source_eff_bits}-bit float to "
                                 f"int[{target_bits}] for '{name}': bit widths differ (use matching "
                                 f"widths, e.g. int[{source_eff_bits}], or convert explicitly)."
@@ -424,12 +570,12 @@ class MemoryManager:
                         if value.is_integer():
                             value = int(value)
                         else:
-                            raise TypeError(f"Cannot assign float with fractional part to {name}: {slot.type_name}")
+                            raise BitWidthError(f"Cannot assign float with fractional part to {name}: {slot.type_name}")
                     if normalized_type == "float" and isinstance(value, int):
                         target_bits = _effective_numeric_bits(slot.max_size)
                         source_eff_bits = _effective_numeric_bits(source_bits)
                         if target_bits != source_eff_bits:
-                            raise TypeError(
+                            raise BitWidthError(
                                 f"Cannot implicitly convert a {source_eff_bits}-bit int to "
                                 f"float[{target_bits}] for '{name}': bit widths differ (use matching "
                                 f"widths, e.g. float[{source_eff_bits}], or convert explicitly)."
@@ -579,6 +725,19 @@ class MemoryManager:
         even when the container is empty (and so never reaches per-item validation)."""
         if element_type == "any":
             return
+        if "||" in element_type:
+            # A packed ptr[kinds][types] spec (see parse_annotation) — the kind half was
+            # already validated against PTR_KIND_KEYWORDS at parse time; only the value-type
+            # half can name a class/enum this module has no way to have checked yet.
+            _, _, types_spec = element_type.partition("||")
+            if not types_spec or types_spec == "any":
+                return
+            for spec in (t.strip() for t in types_spec.split(",")):
+                if spec == "any" or spec == "ptr" or spec in TYPE_MAP:
+                    continue
+                if self._lookup_class_definition(spec) is None and self._lookup_enum_definition(spec) is None:
+                    raise TypeError(f"Unknown type '{spec}' used in ptr[...][...] value-type annotation")
+            return
         for spec in (t.strip() for t in element_type.split(",")):
             if spec == "any" or spec == "ptr" or spec in TYPE_MAP:
                 continue
@@ -676,7 +835,7 @@ class MemoryManager:
                     if suggestion is not None
                     else "This value doesn't fit any supported int width (max is int[64])."
                 )
-                raise ValueError(
+                raise BitWidthError(
                     f"Value {value} does not fit in a signed {max_size}-bit int "
                     f"(range {low}..{high}). {hint}"
                 )
@@ -685,14 +844,69 @@ class MemoryManager:
             try:
                 struct.pack(f"<{fmt_code}", value)
             except OverflowError:
-                raise ValueError(
+                raise BitWidthError(
                     f"Value {value} is too large in magnitude for a {max_size}-bit float. "
                     f"Use float[64] (or a wider width) to fit this value."
                 )
 
+    def _class_definition_matches(self, class_def: "ClassDefinition", target_name: str) -> bool:
+        """Like _instance_matches_class, but for the CLASS itself (e.g. a `ptr[class][X]`
+        pointer's target) rather than an instance dict — walks class_def's own
+        parent_class chain checking each ancestor's name against target_name."""
+        seen: set[str] = set()
+        current: ClassDefinition | None = class_def
+        while current is not None and current.name not in seen:
+            if current.name == target_name:
+                return True
+            seen.add(current.name)
+            current = self._lookup_class_definition(current.parent_class) if current.parent_class else None
+        return False
+
     def _validate_element_types(self, type_name: str, value: Value, element_type: str) -> None:
         """Valida los tipos de elementos dentro de arrays y diccionarios."""
         if value is None:
+            return
+        if type_name == "ptr":
+            # A packed `ptr[kinds][types]` spec — see parse_annotation. `value` here is
+            # the Pointer itself (not a container), so this doesn't fit the list/dict
+            # branches below at all.
+            if not isinstance(value, Pointer):
+                return  # Plain `isinstance(value, Pointer)` is already enforced elsewhere
+                # for every `ptr`-typed slot regardless of a [kinds][types] spec; nothing
+                # further to check here if that's somehow not the case.
+            kinds_spec, _, types_spec = element_type.partition("||")
+            actual_kind = value._kind()
+            if kinds_spec:
+                allowed_kinds = {PTR_KIND_KEYWORDS[k] for k in kinds_spec.split(",")}
+                if actual_kind not in allowed_kinds:
+                    raise PointerError(
+                        f"'{value.name}' is a pointer to a {actual_kind}, but this ptr[...] "
+                        f"annotation only accepts a pointer to: {kinds_spec}"
+                    )
+            if types_spec and actual_kind in ("variable", "constant"):
+                target_value = value.value
+                if target_value is not None:
+                    allowed_specs = [t.strip() for t in types_spec.split(",")]
+                    if not any(self._element_matches_spec(spec, target_value) for spec in allowed_specs):
+                        raise PointerError(
+                            f"'{value.name}' holds a {type(target_value).__name__}, but this "
+                            f"ptr[...][...] annotation requires one of: {types_spec}"
+                        )
+            elif types_spec and actual_kind == "class":
+                # For a class-kind pointer, the second bracket isn't a "data type" (a
+                # class doesn't hold one) — it's WHICH class(es) specifically are
+                # accepted, matched by name or by extending one of them (same
+                # inheritance walk _instance_matches_class does for instances, just
+                # over the class itself rather than an instance's __class__ chain).
+                target_class = value._raw()
+                if isinstance(target_class, ClassDefinition):
+                    allowed_specs = [t.strip() for t in types_spec.split(",")]
+                    if not any(self._class_definition_matches(target_class, spec) for spec in allowed_specs):
+                        raise PointerError(
+                            f"'{value.name}' is class '{target_class.name}', but this "
+                            f"ptr[class][...] annotation only accepts: {types_spec} "
+                            f"(or a subclass of one of them)"
+                        )
             return
         # Validate element types based on the runtime value structure.
         if isinstance(value, list):
@@ -807,10 +1021,30 @@ for name, function in BUILTIN_FUNCTIONS.items():
 # Override the raw Python print registered above with the instance-aware version.
 memory._slots["print"].value = _builtin_print
 
+_PRELOAD_CACHE: dict[str, str] = {}
+
+
+def _builtin_preload(path: str) -> str:
+    """preload(path): reads and returns a file's text content — same result as
+    file_read(path) — but caches it by path, so repeated preload() calls for the same
+    file return instantly from memory instead of touching disk again. Respects --nch
+    (NO_CACHE) as a full bypass: every call re-reads from disk, and neither reads nor
+    writes the cache, exactly like #onready func's memoization does."""
+    if not NO_CACHE and path in _PRELOAD_CACHE:
+        return _PRELOAD_CACHE[path]
+    content = read_file(path)
+    if not NO_CACHE:
+        _PRELOAD_CACHE[path] = content
+    return content
+
+
+memory.allocate("preload", "any", _builtin_preload)
+
 SHOW_MEMORY: bool = False
 SHOW_RETURNS: bool = False
 TRACE: bool = False
 WARNINGS: bool = False
+NO_CACHE: bool = False  # --nch CLI flag: disables #onready func memoization and preload() caching.
 LOADED_MODULES: set[str] = set()
 EXPRESSION_AST_CACHE: dict[str, ast.expr] = {}
 # Separate cache keyed by the RAW (pre-transform) expression string, so a loop
@@ -822,6 +1056,28 @@ EXPRESSION_AST_CACHE: dict[str, ast.expr] = {}
 # (unlike caching by id() would be for mutable objects).
 _RAW_EXPRESSION_AST_CACHE: dict[str, ast.expr] = {}
 _CURRENT_LINE: int | None = None  # Updated by process_source_lines for warning attribution
+
+
+def _get_cached_parsed_expression(expression: str) -> ast.expr:
+    """Shared front door onto _RAW_EXPRESSION_AST_CACHE for anything that needs a raw
+    expression string turned into a parsed AST node the same way evaluate_expression()
+    does (pointer-syntax + `$`-stripping, then parse_cached_expression's own
+    transformed-text cache as a second layer). Both evaluate_expression() and
+    _infer_source_numeric_bits() used to redo replace_pointer_syntax()+re.sub() on
+    every single call regardless of the raw-text cache existing — the latter simply
+    never checked it, only benefiting from parse_cached_expression's cache underneath
+    (skipping ast.parse() itself, but not the transform work leading up to it). In a
+    tight loop re-evaluating the same few lines thousands of times, that transform
+    work (profiled: ~0.9s of a hot loop's ~9s just in replace_pointer_syntax alone)
+    was being paid twice per assignment for no reason — once here, once again there.
+    """
+    parsed_body = _RAW_EXPRESSION_AST_CACHE.get(expression)
+    if parsed_body is None:
+        transformed = replace_pointer_syntax(expression)
+        transformed = re.sub(r"\$(?=[A-Za-z_])", "", transformed)
+        parsed_body = parse_cached_expression(transformed)
+        _RAW_EXPRESSION_AST_CACHE[expression] = parsed_body
+    return parsed_body
 
 # Tracking for warnings
 USAGE_TRACKING: dict[str, bool] = {}  # Track if variables/functions/classes are used
@@ -935,6 +1191,38 @@ def _validate_class_annotation(base_type: str, value: Value, memory_manager: Mem
 
 _NO_SELF = object()  # Sentinel distinguishing "no bound_self provided" from "bound_self is None"
 
+_REST_PARAM_NAME_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)(?:\[(\d+)\])?$")
+
+
+def _parse_param_prefixes(param_text: str) -> tuple[str, bool, bool]:
+    """Strips a leading `!` (rest — collect remaining/named args into an array) and/or
+    `?` (named — settable only via `$name=value` at the call site) marker from a raw
+    declared parameter string, in either order (`!?name` and `?!name` both work).
+    Returns (remaining_text, is_rest, is_named)."""
+    text = param_text.strip()
+    is_rest = False
+    is_named = False
+    while text[:1] in ("!", "?"):
+        if text[0] == "!":
+            is_rest = True
+        else:
+            is_named = True
+        text = text[1:]
+    return text.strip(), is_rest, is_named
+
+
+def _parse_rest_param_name(name_part: str) -> tuple[str, int | None]:
+    """A rest parameter's optional size limit is written right after its NAME —
+    `!value[10]: int` — unlike every other bracket-size annotation in the language
+    (`array[int][10]`, `str[32]`), which always attaches the size to the TYPE instead.
+    This mirrors how the parameter reads: 'value, holding up to 10 items'."""
+    match = _REST_PARAM_NAME_RE.match(name_part.strip())
+    if not match:
+        raise SyntaxError(f"Invalid rest parameter name: '{name_part}'")
+    name = match.group(1)
+    max_size = int(match.group(2)) if match.group(2) else None
+    return name, max_size
+
 
 @dataclass
 class FunctionDefinition:
@@ -951,9 +1239,62 @@ class FunctionDefinition:
     # Used so a function captured into a namespace dict (via `@from x.gbn @as alias`) keeps
     # access to symbols from its OWN file (e.g. another `@from` it did internally) even when
     # called later from a completely different file's scope.
+    is_onready: bool = False  # `#onready func` — memoize .call() results, keyed by the exact
+    # arguments given (see _onready_cache_key below). Skipped entirely when NO_CACHE is set
+    # (the --nch CLI flag), so a script can always get a fresh, uncached run for debugging.
+    _cache: dict = field(default_factory=dict, repr=False, compare=False)
 
-    def call(self, args: list[Value], parent_memory: MemoryManager, current_dir: Path, source_path: Path | None = None, bound_self: Value = _NO_SELF, arg_source_bits: list[int | None] | None = None) -> Value:
+    def __post_init__(self) -> None:
+        # Structural rules for `!` (rest) parameters — checked once here (definition
+        # time) rather than on every call:
+        #   - at most one PLAIN (non-named) rest parameter, and it must be the very
+        #     last declared parameter (its whole point is "everything left over");
+        #   - multiple rest parameters are only allowed when EACH is also named
+        #     (`?!name`), since a name is what makes it possible to say which values
+        #     go to which rest parameter at the call site — a plain `!` can't coexist
+        #     with those for the same reason (nothing left to disambiguate positionally).
+        plain_rest_positions: list[int] = []
+        named_rest_count = 0
+        for i, raw in enumerate(self.params):
+            _, is_rest, is_named = _parse_param_prefixes(raw)
+            if is_rest and is_named:
+                named_rest_count += 1
+            elif is_rest:
+                plain_rest_positions.append(i)
+        if len(plain_rest_positions) > 1:
+            raise SyntaxError(
+                f"Function '{self.name}': only one '!' (non-named) rest parameter is allowed per function"
+            )
+        if plain_rest_positions and plain_rest_positions[0] != len(self.params) - 1:
+            raise SyntaxError(
+                f"Function '{self.name}': a '!' rest parameter must be the LAST declared parameter"
+            )
+        if plain_rest_positions and named_rest_count:
+            raise SyntaxError(
+                f"Function '{self.name}': a plain '!' rest parameter can't be combined with "
+                f"named '?!' rest parameters — mark it '?!' too so all of them are named"
+            )
+
+    def call(self, args: list[Value], parent_memory: MemoryManager, current_dir: Path, source_path: Path | None = None, bound_self: Value = _NO_SELF, arg_source_bits: list[int | None] | None = None, kwargs: dict[str, Value] | None = None) -> Value:
         source_path = source_path or self.source_path
+        kwargs = kwargs or {}
+
+        # `#onready func`: memoize by the exact arguments given (positional + named),
+        # skipped entirely under --nch (NO_CACHE) so a script can always force a fresh,
+        # uncached run. repr() gives a simple, deterministic key covering every value
+        # type the language has (numbers, strings, lists, dicts, nested structures);
+        # it's not a *semantic* equality check (e.g. two different Pointer objects to
+        # the same target repr() differently), but for the common case of memoizing a
+        # pure computation over plain values it's exactly what "the same arguments"
+        # means. A method's cache lives on ITS OWN FunctionDefinition object, which
+        # ClassDefinition.instantiate() already rebuilds fresh per instance — so this
+        # never needs bound_self in the key to keep one instance's cache separate from
+        # another's.
+        onready_cache_key: str | None = None
+        if self.is_onready and not NO_CACHE:
+            onready_cache_key = repr((args, sorted(kwargs.items())))
+            if onready_cache_key in self._cache:
+                return self._cache[onready_cache_key]
 
         # Resolve the effective parent scope. Normally this is just `parent_memory` (the
         # caller's scope), which is what lets implicit-self methods (no `self` param) reach
@@ -995,14 +1336,69 @@ class FunctionDefinition:
                     effective_arg_source_bits = [None] + list(arg_source_bits)
             # else: instance stays reachable only via parent_memory's "self" scope binding.
 
-        for index, param in enumerate(self.params):
-            # Extraer solo el nombre del parámetro (antes de ":")
-            if ":" in param:
-                param_name, _ptype_raw = param.split(":", 1)
+        # Recognized kwarg names — anything the caller passes by name ($x=value) that
+        # isn't one of these is an error (a plain, non-`?` param can never be targeted
+        # by name — see the "only ?-marked parameters" check right below).
+        recognized_kwarg_names = set()
+        for raw in self.params:
+            text, p_is_rest, p_is_named = _parse_param_prefixes(raw)
+            if not p_is_named:
+                continue
+            name_part = text.split(":", 1)[0].strip()
+            if p_is_rest:
+                name_part, _ = _parse_rest_param_name(name_part)
+            recognized_kwarg_names.add(name_part)
+        unexpected = set(kwargs) - recognized_kwarg_names
+        if unexpected:
+            raise TypeError(
+                f"Function '{self.name}' got unexpected keyword argument(s): {', '.join(sorted(unexpected))} "
+                f"(only parameters declared with a leading '?' can be given by name)"
+            )
+
+        positional_index = 0  # advances only for plain (non-rest, non-named) parameters
+        for param in self.params:
+            raw_text, is_rest, is_named = _parse_param_prefixes(param)
+
+            if is_rest:
+                # `!name[N]: type` / `?!name[N]: type` — collects into an array, reusing
+                # array[T][N]'s own size/element-type validation via allocate() below.
+                if ":" in raw_text:
+                    name_part, elem_type_raw = raw_text.split(":", 1)
+                    elem_type_raw = elem_type_raw.strip()
+                else:
+                    name_part, elem_type_raw = raw_text, "any"
+                param_name, rest_max_size = _parse_rest_param_name(name_part)
+                p_element_type = None
+                if elem_type_raw != "any":
+                    _, _, p_element_type = parse_annotation(f"array[{elem_type_raw}]")
+
+                if is_named:
+                    # `?!name`: only what's explicitly passed as `$name=[...]` at the call
+                    # site — see FunctionDefinition's module-level notes on why an explicit
+                    # array, rather than "every bare value until the next $name=", is what
+                    # this reuses (Python's own call-argument syntax, which `$name=value`
+                    # rides on via the `$`-stripping preprocessing step, has no concept of
+                    # several bare values belonging to one preceding keyword).
+                    collected = kwargs.get(param_name, [])
+                    if not isinstance(collected, list):
+                        raise TypeError(
+                            f"Function '{self.name}': named rest parameter '{param_name}' "
+                            f"must be given as an array (got {type(collected).__name__})"
+                        )
+                else:
+                    # Plain `!name`: everything left over, positionally.
+                    collected = list(effective_args[positional_index:])
+                    positional_index = len(effective_args)
+
+                local_memory.allocate(param_name, "array", collected, max_size=rest_max_size, element_type=p_element_type)
+                continue
+
+            if ":" in raw_text:
+                param_name, _ptype_raw = raw_text.split(":", 1)
                 param_name = param_name.strip()
                 param_annotation_raw = _ptype_raw.strip()
             else:
-                param_name = param.strip()
+                param_name = raw_text.strip()
                 param_annotation_raw = "any"
 
             # Resolve the declared annotation into (base_type, max_size, element_type),
@@ -1011,8 +1407,19 @@ class FunctionDefinition:
                 param_annotation_raw, local_memory
             )
 
-            if index < len(effective_args):
-                value = effective_args[index]
+            if is_named:
+                # `?name`: settable ONLY via `$name=value` at the call site — never
+                # consumes a positional slot, present or not.
+                if param_name in kwargs:
+                    value = kwargs[param_name]
+                    target_type = infer_type(value) if p_base == "any" else p_base
+                    local_memory.allocate(param_name, target_type, value, max_size=p_max_size, element_type=p_element_type)
+                else:
+                    local_memory.allocate(param_name, p_base, None, max_size=p_max_size, element_type=p_element_type)
+                continue
+
+            if positional_index < len(effective_args):
+                value = effective_args[positional_index]
                 # target_type: declared annotation when meaningful (primitive, multi-type, or
                 # class name), otherwise infer from the runtime value (annotation was "any").
                 if p_base == "any":
@@ -1020,11 +1427,12 @@ class FunctionDefinition:
                 else:
                     target_type = p_base
                 param_source_bits = (
-                    effective_arg_source_bits[index]
-                    if effective_arg_source_bits and index < len(effective_arg_source_bits)
+                    effective_arg_source_bits[positional_index]
+                    if effective_arg_source_bits and positional_index < len(effective_arg_source_bits)
                     else None
                 )
                 local_memory.allocate(param_name, target_type, value, max_size=p_max_size, element_type=p_element_type, source_bits=param_source_bits)
+                positional_index += 1
             else:
                 # No argument passed: preserve the DECLARED type (not "any") so that
                 # `$param is NULL` and later assignments still respect the annotation.
@@ -1115,6 +1523,8 @@ class FunctionDefinition:
                         line=slot.defined_line,
                     )
 
+        if onready_cache_key is not None:
+            self._cache[onready_cache_key] = ret_val
         return ret_val
 
 
@@ -1142,7 +1552,7 @@ class ClassDefinition:
             return True  # No recorded origin: don't block (defensive default).
         return _memory_descends_from(caller_memory, self.defining_memory)
 
-    def instantiate(self, args: list[Value], parent_memory: MemoryManager, current_dir: Path, source_path: Path | None = None) -> dict[str, Any]:
+    def instantiate(self, args: list[Value], parent_memory: MemoryManager, current_dir: Path, source_path: Path | None = None, kwargs: dict[str, Value] | None = None) -> dict[str, Any]:
         if self.is_reserved and not self._is_internal_caller(parent_memory):
             raise AttributeError(
                 f"Class '{self.name}' is declared #reserved and cannot be instantiated "
@@ -1158,7 +1568,29 @@ class ClassDefinition:
             "__dir__": current_dir,
             "__defining_memory__": self.defining_memory,  # scope the class was defined in
         }
-        class_memory = MemoryManager(parent=parent_memory)
+        class_memory_parent = parent_memory
+        # BUGFIX (reported by Katsuo, confirmed by regression test below): this used to
+        # always be `MemoryManager(parent=parent_memory)` — i.e. the class body (fields
+        # AND method definitions) got (re-)processed, at every instantiation, with a
+        # scope chained to whoever happens to be CALLING `$SomeClass(...)`, rather than
+        # to the scope the class was originally DEFINED in. That's invisible for a class
+        # that's fully self-contained, but breaks the moment one class's method
+        # references ANOTHER symbol from the same source file (another class, an enum, a
+        # helper function) and the class is instantiated from a different file's scope —
+        # e.g. `items.gbn` defines `Item`, `ItemStack` and `Inventory`, and `Inventory.add()`
+        # builds an `ItemStack`; a game script doing `@from items.gbn @use $$Inventory,
+        # $$Item` (selectively, without also requesting `$$ItemStack` — no reason it
+        # should have to, `ItemStack` is an internal implementation detail of `Inventory`)
+        # would instantiate `Inventory` from a scope that never received `ItemStack`, so
+        # `$inv.add(...)` raised "Variable not declared: ItemStack" even though `Inventory`
+        # and `ItemStack` live in the very same file. `FunctionDefinition.call()` already
+        # falls back to a function's own `defining_memory` for exactly this reason; classes
+        # need the identical fallback for their OWN body processing, so every method
+        # defined inside the class resolves sibling symbols via the class's own source
+        # file first, regardless of which scope instantiates it.
+        if self.defining_memory is not None and not _memory_descends_from(parent_memory, self.defining_memory):
+            class_memory_parent = MemoryManager(parent=self.defining_memory)
+        class_memory = MemoryManager(parent=class_memory_parent)
         class_memory.allocate("self", "any", instance)
 
         # Si hay clase padre, primero procesar su body
@@ -1215,7 +1647,7 @@ class ClassDefinition:
                     break
 
         if init_func is not None:
-            init_func.call(args, class_memory, current_dir, source_path=source_path, bound_self=instance)
+            init_func.call(args, class_memory, current_dir, source_path=source_path, bound_self=instance, kwargs=kwargs)
 
         return instance
 
@@ -1236,15 +1668,38 @@ class EnumDefinition:
 
 class EventDefinition:
     """Una señal ligera declarada con `event nombre(params)` — sin cuerpo, sin 'end'.
-    El script nunca toca este objeto directamente: solo llama a sus dos metodos,
+    El script nunca toca este objeto directamente: solo llama a sus metodos,
     despachados por el mismo mecanismo generico de Attribute/Call que ya usa Pointer
     (ver el `return getattr(value, node.attr)` al final de evaluate_ast):
 
-      .connect(handler) — registra una referencia a funcion (un Pointer creado con
-                           `$$nombre_funcion`) para que se ejecute en cada `.emit(...)`.
-      .emit(*args)       — invoca cada handler conectado, en orden de conexion,
-                            reenviando los argumentos. La cantidad de argumentos debe
-                            coincidir con la cantidad de parametros declarados.
+      .connect(handler)    — registra una referencia a funcion (un Pointer creado con
+                              `$$nombre_funcion`) para que se ejecute en cada `.emit(...)`.
+                              Conectar el mismo handler dos veces lo ejecuta dos veces por
+                              emit — usar `.reconnect(...)` para evitar duplicados.
+      .disconnect(handler) — quita ese handler de la lista, si esta conectado. No hace
+                              nada (no lanza error) si nunca estuvo conectado — desconectar
+                              algo que ya no esta conectado es una operacion valida y comun
+                              (p. ej. al limpiar antes de que un objeto se destruya).
+      .reconnect(handler)  — `.disconnect(handler)` + `.connect(handler)`: garantiza que
+                              el handler quede conectado exactamente una vez, sin importar
+                              si ya estaba conectado antes. Util para "refrescar" una
+                              conexion sin arriesgarse a duplicarla.
+      .emit(*args)         — invoca cada handler conectado, en orden de conexion,
+                              reenviando los argumentos. La cantidad de argumentos debe
+                              coincidir con la cantidad de parametros declarados.
+      .last_connection     — atributo de solo lectura (sin parentesis, igual que `.name`/
+                              `.ref` de Pointer): el Pointer del ultimo handler conectado
+                              (el que quedaria ULTIMO en ejecutarse en el proximo `.emit()`),
+                              o NULL si el evento no tiene ningun handler conectado.
+                              `.disconnect(...)` y `.reconnect(...)` lo actualizan igual
+                              que `.connect(...)` — tras un `.reconnect(h)`, `h` vuelve a
+                              ser el ultimo, sin importar donde estuviera antes en la lista.
+
+    Dos referencias `$$mismo_nombre` capturadas en el mismo scope apuntan al mismo
+    objeto subyacente (mismo `.ref`, la identidad de memoria de lo referenciado) aunque
+    sean dos Pointers distintos — `.disconnect()`/`.reconnect()` comparan por `.ref`,
+    no por identidad del propio Pointer, asi que no hace falta guardar el Pointer
+    original que se uso para `.connect()` para poder desconectarlo despues.
 
     Las anotaciones de tipo en los parametros (`entity: Entity`) son solo
     documentacion — el evento no tiene cuerpo propio contra el cual validarlas —
@@ -1256,16 +1711,45 @@ class EventDefinition:
         self.params = params
         self.source_path = source_path
         self._handlers: list["Pointer"] = []
+        self._emitted = False  # True once .emit() has run at least once — see __bool__.
 
-    def connect(self, handler: Value) -> None:
+    def __bool__(self) -> bool:
+        # `if $my_event` / `while $my_event`: an event's truthiness is whether it has
+        # EVER been emitted, never "what it returns" — .emit() always returns None, and
+        # without this override a bare Python object is always truthy regardless, so
+        # `if $my_event` would incorrectly be True even for an event nothing ever fired.
+        return self._emitted
+
+    @property
+    def last_connection(self) -> "Pointer | None":
+        return self._handlers[-1] if self._handlers else None
+
+    def _validate_handler(self, handler: Value, method: str) -> "Pointer":
         if not isinstance(handler, Pointer):
-            raise TypeError(
-                f"Event '{self.name}'.connect(...) expects a function reference created "
+            raise EventError(
+                f"Event '{self.name}'.{method}(...) expects a function reference created "
                 f"with '$$function_name' (got {type(handler).__name__})"
             )
-        if not handler.is_callable:
-            raise TypeError(f"Event '{self.name}'.connect(...): '{handler.name}' is not a function")
+        # Specifically "function" — not handler.is_callable, which is also True for a
+        # pointer to a CLASS (classes are "callable" in the sense that $$SomeClass.call(...)
+        # instantiates them, but an event firing should only ever run plain functions, never
+        # silently construct an instance and throw it away).
+        if handler._kind() != "function":
+            raise EventError(f"Event '{self.name}'.{method}(...): '{handler.name}' is not a function")
+        return handler
+
+    def connect(self, handler: Value) -> None:
+        handler = self._validate_handler(handler, "connect")
         self._handlers.append(handler)
+
+    def disconnect(self, handler: Value) -> None:
+        handler = self._validate_handler(handler, "disconnect")
+        target_ref = handler.ref
+        self._handlers = [h for h in self._handlers if h.ref != target_ref]
+
+    def reconnect(self, handler: Value) -> None:
+        self.disconnect(handler)
+        self.connect(handler)
 
     def emit(self, *args: Value) -> None:
         if len(args) != len(self.params):
@@ -1273,6 +1757,7 @@ class EventDefinition:
                 f"Event '{self.name}': emit() called with {len(args)} argument(s), "
                 f"but the event declares {len(self.params)}"
             )
+        self._emitted = True
         for handler in list(self._handlers):
             handler.call(*args)
 
@@ -1397,7 +1882,7 @@ class Pointer:
 
     def __init__(self, target: str | None = None, memory_manager: MemoryManager | None = None, current_dir: Path | None = None, raw_address: int | None = None) -> None:
         if raw_address is None and target is None:
-            raise ValueError("Pointer requires either a target expression or a raw_address")
+            raise PointerError("Pointer requires either a target expression or a raw_address")
         self._target = target.strip() if target is not None else None
         self._memory_manager = memory_manager
         self._current_dir = current_dir
@@ -1436,11 +1921,11 @@ class Pointer:
         return None
 
     def _kind(self) -> str:
-        """'function' | 'class' | 'constant' | 'variable' | 'address' — used to decide
-        what a pointer is allowed to do and to build clear error messages. A slot
-        declared #inmutable reads as 'variable' here (not 'constant'): it behaves like a
-        const for direct `$name = ...` writes, but a pointer is explicitly allowed to
-        mutate it (see MemorySlot.mutable_via_pointer / Pointer.set())."""
+        """'function' | 'class' | 'event' | 'constant' | 'variable' | 'address' — used
+        to decide what a pointer is allowed to do and to build clear error messages. A
+        slot declared #inmutable reads as 'variable' here (not 'constant'): it behaves
+        like a const for direct `$name = ...` writes, but a pointer is explicitly
+        allowed to mutate it (see MemorySlot.mutable_via_pointer / Pointer.set())."""
         if self._raw_address is not None:
             return "address"
         slot = self._resolve_slot()
@@ -1449,6 +1934,8 @@ class Pointer:
             return "function"
         if isinstance(val, ClassDefinition):
             return "class"
+        if isinstance(val, EventDefinition):
+            return "event"
         if slot is not None and slot.immutable and not slot.mutable_via_pointer:
             return "constant"
         return "variable"
@@ -1466,12 +1953,12 @@ class Pointer:
             )
         kind = self._kind()
         if kind in ("function", "class"):
-            raise TypeError(f"Cannot assign through a pointer to a {kind} ('{self.name}')")
+            raise PointerError(f"Cannot assign through a pointer to a {kind} ('{self.name}')")
         slot = self._resolve_slot()
         if slot is not None and slot.immutable and not slot.mutable_via_pointer:
-            raise TypeError(f"Cannot assign through a pointer to a constant ('{self.name}')")
+            raise PointerError(f"Cannot assign through a pointer to a constant ('{self.name}')")
         if slot is not None and slot.is_reserved:
-            raise AttributeError(f"Cannot change '{self.name}' through a pointer: it is declared #reserved")
+            raise PointerError(f"Cannot change '{self.name}' through a pointer: it is declared #reserved")
         # Unlike a normal `$name = value` assignment, writing through a pointer accepts any
         # value type — a mismatch against the target's declared type is reported as a
         # warning (via print_warning, shown with --w) rather than rejected with TypeError.
@@ -1506,7 +1993,7 @@ class Pointer:
         `ptr.call(1, 2)` — same as calling the function/class directly by name would;
         bare `ptr.call` (no parentheses) just returns the callable without invoking it."""
         if self._raw_address is not None:
-            raise TypeError(f"Raw address pointer (0x{self._raw_address:x}) is not callable")
+            raise PointerError(f"Raw address pointer (0x{self._raw_address:x}) is not callable")
         target_value = self._raw()
         if isinstance(target_value, FunctionDefinition):
             return target_value.call(list(args), self._memory_manager, self._current_dir, source_path=target_value.source_path)
@@ -1514,7 +2001,7 @@ class Pointer:
             return target_value.instantiate(list(args), self._memory_manager, self._current_dir, source_path=target_value.source_path)
         if callable(target_value):
             return target_value(*args)
-        raise TypeError(f"'{self.name}' is not callable through this pointer")
+        raise PointerError(f"'{self.name}' is not callable through this pointer")
 
     @property
     def name(self) -> str:
@@ -1627,11 +2114,13 @@ def collect_block(lines: list[str], start_index: int) -> tuple[list[str], int]:
         # Strip a leading #reserved tag only for the purpose of recognizing block-opening
         # keywords (e.g. `#reserved func foo()` still opens a block like `func foo()` would).
         depth_probe = stripped
-        while depth_probe.startswith("#reserved") or depth_probe.startswith("#public"):
+        while depth_probe.startswith(("#reserved", "#public", "#onready")):
             if depth_probe.startswith("#reserved"):
                 depth_probe = depth_probe[len("#reserved"):].strip()
-            else:
+            elif depth_probe.startswith("#public"):
                 depth_probe = depth_probe[len("#public"):].strip()
+            else:
+                depth_probe = depth_probe[len("#onready"):].strip()
         if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ", "match ")) or depth_probe == "try":
             depth += 1
         elif stripped == "end":
@@ -1655,11 +2144,13 @@ def collect_if_group(lines: list[str], start_index: int) -> tuple[list[tuple[str
             i += 1
             continue
         depth_probe = stripped
-        while depth_probe.startswith("#reserved") or depth_probe.startswith("#public"):
+        while depth_probe.startswith(("#reserved", "#public", "#onready")):
             if depth_probe.startswith("#reserved"):
                 depth_probe = depth_probe[len("#reserved"):].strip()
-            else:
+            elif depth_probe.startswith("#public"):
                 depth_probe = depth_probe[len("#public"):].strip()
+            else:
+                depth_probe = depth_probe[len("#onready"):].strip()
         if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ", "match ")) or depth_probe == "try":
             depth += 1
         elif stripped == "end":
@@ -1667,9 +2158,21 @@ def collect_if_group(lines: list[str], start_index: int) -> tuple[list[tuple[str
                 groups.append((current_condition, current_block))
                 return groups, i + 1
             depth -= 1
-        elif depth == 0 and stripped.startswith("elseif "):
+        elif depth == 0 and (stripped.startswith("elseif ") or stripped.startswith("elif ")):
+            # BUGFIX (reported by Katsuo, confirmed by regression test below): the
+            # entire shipped standard library (math.gbn uses it 8 times) writes
+            # branches as `elif <cond>`, matching the GDScript convention this
+            # language's syntax is modeled on — but this parser only ever recognized
+            # `elseif <cond>`. Since neither "elif ..." nor "elseif ..." matched here
+            # before, an `elif` line fell through to `current_block.append(...)`
+            # below: it silently became a dead statement INSIDE the preceding `if`
+            # branch's body instead of opening a new branch, so the elif's condition
+            # was never evaluated and its branch never ran — with no error, just the
+            # wrong value. `elseif` is kept accepted alongside `elif` so any existing
+            # source written the other way still works.
+            branch_prefix = "elif " if stripped.startswith("elif ") else "elseif "
             groups.append((current_condition, current_block))
-            current_condition = stripped[len("elseif "):].strip()
+            current_condition = stripped[len(branch_prefix):].strip()
             current_block = []
             i += 1
             continue
@@ -1684,8 +2187,14 @@ def collect_if_group(lines: list[str], start_index: int) -> tuple[list[tuple[str
     raise SyntaxError("Block was not properly closed with 'end'")
 
 
-def collect_try_block(lines: list[str], start_index: int) -> tuple[list[str], list[str], int]:
+def collect_try_block(lines: list[str], start_index: int) -> tuple[list[str], str | None, list[str], int]:
+    """Returns (body, catch_header, catch_body, next_index). `catch_header` is the raw
+    `catch`/`except` header line (e.g. `"except SyntaxError, ValueError -> e"`, or just
+    `"catch"`), for parse_catch_header() to read the requested error type(s) and capture
+    variable from — or None if the try block has no catch/except clause at all (in which
+    case `catch_body` is always empty and irrelevant)."""
     body: list[str] = []
+    catch_header: str | None = None
     catch_body: list[str] = []
     current_block = body
     depth = 0
@@ -1696,20 +2205,23 @@ def collect_try_block(lines: list[str], start_index: int) -> tuple[list[str], li
             i += 1
             continue
         depth_probe = stripped
-        while depth_probe.startswith("#reserved") or depth_probe.startswith("#public"):
+        while depth_probe.startswith(("#reserved", "#public", "#onready")):
             if depth_probe.startswith("#reserved"):
                 depth_probe = depth_probe[len("#reserved"):].strip()
-            else:
+            elif depth_probe.startswith("#public"):
                 depth_probe = depth_probe[len("#public"):].strip()
+            else:
+                depth_probe = depth_probe[len("#onready"):].strip()
         if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ", "match ")) or depth_probe == "try":
             depth += 1
-        elif depth == 0 and stripped in ("catch", "except"):
+        elif depth == 0 and (stripped.split(None, 1)[0] in ("catch", "except") if stripped else False):
+            catch_header = stripped
             current_block = catch_body
             i += 1
             continue
         elif stripped == "end":
             if depth == 0:
-                return body, catch_body, i + 1
+                return body, catch_header, catch_body, i + 1
             depth -= 1
         current_block.append(lines[i])
         i += 1
@@ -1790,11 +2302,13 @@ def collect_match_block(lines: list[str], start_index: int) -> tuple[str, list[t
             i += 1
             continue
         depth_probe = stripped
-        while depth_probe.startswith("#reserved") or depth_probe.startswith("#public"):
+        while depth_probe.startswith(("#reserved", "#public", "#onready")):
             if depth_probe.startswith("#reserved"):
                 depth_probe = depth_probe[len("#reserved"):].strip()
-            else:
+            elif depth_probe.startswith("#public"):
                 depth_probe = depth_probe[len("#public"):].strip()
+            else:
+                depth_probe = depth_probe[len("#onready"):].strip()
         if depth_probe.startswith(("if ", "while ", "for ", "func ", "class ", "try ", "match ")) or depth_probe == "try":
             depth += 1
         elif stripped == "end":
@@ -1942,10 +2456,12 @@ def evaluate_ast(node: ast.AST, memory_manager: MemoryManager, current_dir: Path
             return Pointer(node.args[0].value, memory_manager, current_dir)
         func = evaluate_ast(node.func, memory_manager, current_dir)
         args = [evaluate_ast(arg, memory_manager, current_dir) for arg in node.args]
-        # Keyword arguments (e.g. `end=""`, `flush=true`) only make sense for native
-        # Python callables (built-ins like print). FunctionDefinition/ClassDefinition
-        # calls use GybinScript's own positional calling convention, so kwargs are
-        # only forwarded on the `callable(func)` native path below.
+        # Keyword arguments (`$name=value`, e.g. `set_modulate($r=0.6)`) work for BOTH
+        # native Python callables (built-ins like print's `end=""`) AND GybinScript's own
+        # functions/classes — but for the latter, only reach a parameter that was
+        # declared with a leading `?` (see FunctionDefinition.call()'s "unexpected
+        # keyword argument" check); an ordinary positional parameter can never be
+        # targeted by name.
         kwargs = {
             kw.arg: evaluate_ast(kw.value, memory_manager, current_dir)
             for kw in node.keywords if kw.arg is not None
@@ -1956,9 +2472,9 @@ def evaluate_ast(node: ast.AST, memory_manager: MemoryManager, current_dir: Path
             # when $x/$y are themselves declared with that width, instead of every call
             # argument being treated as an untraceable (implicit 64-bit) value.
             arg_source_bits = [_numeric_bits_from_node(arg, memory_manager) for arg in node.args]
-            return func.call(args, memory_manager, current_dir, source_path=func.source_path, arg_source_bits=arg_source_bits)
+            return func.call(args, memory_manager, current_dir, source_path=func.source_path, arg_source_bits=arg_source_bits, kwargs=kwargs)
         if isinstance(func, ClassDefinition):
-            return func.instantiate(args, memory_manager, current_dir, source_path=func.source_path)
+            return func.instantiate(args, memory_manager, current_dir, source_path=func.source_path, kwargs=kwargs)
         if callable(func):
             return func(*args, **kwargs)
         raise TypeError(f"Object {func!r} is not callable")
@@ -2005,7 +2521,18 @@ def evaluate_ast(node: ast.AST, memory_manager: MemoryManager, current_dir: Path
                 return _validated_insert
             if attr == "remove":
                 return lambda index: value.pop(int(index) if isinstance(index, float) else index)
-        if isinstance(value, dict):
+        if isinstance(value, dict) and "__class__" not in value:
+            # BUGFIX (reported by Katsuo): this generic dict-method block used to run
+            # unconditionally for ANY dict — including class instances, which are
+            # represented internally as a dict carrying a "__class__" key. That meant a
+            # user-defined method literally named `size`, `duplicate`, `remove`, `set`
+            # or `update` on a class was silently shadowed by this block (e.g. calling
+            # `$my_stack.size()` on a class with its own `size()` method returned the
+            # instance's internal dict length — 10, for the bookkeeping keys every
+            # instance carries — instead of running the user's method), with no error,
+            # just the wrong value. The `"__class__" not in value` guard restricts this
+            # block to true plain dicts, so class instances now always fall through to
+            # the `__fields__` lookup below, exactly like every other method name already did.
             if attr == "size":
                 return lambda: len(value)
             if attr == "duplicate":
@@ -2160,9 +2687,7 @@ def _infer_source_numeric_bits(expression: str, memory_manager: MemoryManager) -
     if not text:
         return None
     try:
-        transformed = replace_pointer_syntax(text)
-        transformed = re.sub(r"\$(?=[A-Za-z_])", "", transformed)
-        parsed = parse_cached_expression(transformed)
+        parsed = _get_cached_parsed_expression(text)
     except SyntaxError:
         return None
     return _numeric_bits_from_node(parsed, memory_manager)
@@ -2172,12 +2697,7 @@ def evaluate_expression(expression: str, memory_manager: MemoryManager, current_
     expression = expression.strip()
     if not expression:
         return None
-    parsed_body = _RAW_EXPRESSION_AST_CACHE.get(expression)
-    if parsed_body is None:
-        transformed = replace_pointer_syntax(expression)
-        transformed = re.sub(r"\$(?=[A-Za-z_])", "", transformed)
-        parsed_body = parse_cached_expression(transformed)
-        _RAW_EXPRESSION_AST_CACHE[expression] = parsed_body
+    parsed_body = _get_cached_parsed_expression(expression)
     result = evaluate_ast(parsed_body, memory_manager, current_dir)
     # A function/class name used bare (no `$$`, no call parentheses) used to leak the raw
     # internal definition object — its full body/block content. That capture path is gone:
@@ -2281,9 +2801,23 @@ def assign_variable(source: str, memory_manager: MemoryManager, current_dir: Pat
         max_size = size_from_name
     if not base_type:
         base_type = infer_type(value)
-    # Si el valor es nulo y la variable no existe aún, no crearla en memoria
-    if value is None and not memory_manager.has(name):
-        return
+    # BUGFIX (reported by Katsuo, confirmed by regression test below): this used to
+    # skip creating the slot entirely whenever a `var` declaration evaluated to NULL
+    # (originally for ANY such value, later narrowed — still wrongly — to only a
+    # literal `= NULL` in the source). The intent was apparently to let a class field
+    # like `var pos: vec2i = NULL` stay an unmaterialized placeholder until `init()`
+    # assigns it a real value. But `var`/assignment already handles that fine without
+    # any special-casing (assign() below just updates the slot once it has one), and
+    # skipping creation broke the far more common and completely ordinary pattern of
+    # a module-level variable declared once and assigned later — especially when that
+    # later assignment happens inside a nested `if`/`while`/`for` block: the skipped
+    # declaration meant NO slot existed at the outer/global scope, so the later
+    # `$name = value` auto-created one scoped to that inner block instead (there was
+    # nothing at an outer scope for assign() to find and update) — and it vanished
+    # the moment the block ended, so any use of the variable afterwards raised
+    # "Variable not declared: name" even though it had clearly been assigned "long
+    # before", just inside a block. A `var` declaration should always create its
+    # slot immediately, NULL value or not — exactly like every other value.
 
     # Only matters when base_type ends up "int"/"float" and the value needs
     # int<->float coercion; harmless (ignored) otherwise. See allocate()/assign().
@@ -2372,15 +2906,19 @@ def assign_to_variable(target: str, expression: str, memory_manager: MemoryManag
             if isinstance(current, Pointer):
                 current.set(value)
                 return
-        try:
-            memory_manager.assign(normalized_target, value, source_bits=source_bits)
-            return
-        except NameError:
-            if value is None:
-                return
-            type_name = infer_type(value)
-            memory_manager.allocate(normalized_target, type_name, value)
-            return
+        # BUGFIX (reported by Katsuo, confirmed by regression test below): this used to
+        # catch NameError here and silently `allocate()` a brand-new slot instead —
+        # meaning `$typo_name = 10` on a name that was never `var`/`const`-declared
+        # anywhere just quietly created it, no error, no warning. That directly
+        # contradicts the language's own core premise ("all variables must be declared
+        # with a type", §1 of the manual) and made `except $$NameError` around a plain
+        # assignment completely dead code: the exact mistake (assigning to an
+        # undeclared name) that NameError exists to catch could never actually raise
+        # one from this path. `$name = value` now requires `name` to already exist,
+        # exactly like every other assignment in the language — declare it first with
+        # `var`/`const`.
+        memory_manager.assign(normalized_target, value, source_bits=source_bits)
+        return
 
     if isinstance(parsed, ast.Name):
         # `$name = value` on a slot currently holding a Pointer dereferences through it
@@ -2391,12 +2929,10 @@ def assign_to_variable(target: str, expression: str, memory_manager: MemoryManag
             if isinstance(current, Pointer):
                 current.set(value)
                 return
-        try:
-            memory_manager.assign(parsed.id, value, source_bits=source_bits)
-        except NameError:
-            if value is None:
-                return
-            memory_manager.allocate(parsed.id, infer_type(value), value)
+        # See the identical BUGFIX note in the SyntaxError branch above — same silent
+        # auto-declare removed here for the common case (a target that DOES parse as a
+        # plain Python identifier, which is nearly every assignment in practice).
+        memory_manager.assign(parsed.id, value, source_bits=source_bits)
         return
     if isinstance(parsed, ast.Subscript):
         container = evaluate_ast(parsed.value, memory_manager, current_dir)
@@ -2499,7 +3035,7 @@ def assign_value_to_variable(target: str, value: Value, memory_manager: MemoryMa
     memory_manager.assign(normalized_target, value)
 
 
-def define_function(header: str, body: list[str], memory_manager: MemoryManager, source_path: Path | None = None, is_reserved: bool = False) -> None:
+def define_function(header: str, body: list[str], memory_manager: MemoryManager, source_path: Path | None = None, is_reserved: bool = False, is_onready: bool = False) -> None:
     name, params, return_type = parse_function_header(header)
 
     # Validate return type annotation. "NULL" is kept as a sentinel (no return value expected).
@@ -2533,7 +3069,7 @@ def define_function(header: str, body: list[str], memory_manager: MemoryManager,
         name=name, params=params, body=body, return_type=return_base,
         return_max_size=return_max_size, return_element_type=return_element_type,
         return_type_raw=return_type, source_path=source_path, defined_line=_CURRENT_LINE,
-        defining_memory=memory_manager,
+        defining_memory=memory_manager, is_onready=is_onready,
     )
     memory_manager.allocate(name, "any", func_def, defined_line=_CURRENT_LINE, is_reserved=is_reserved)
 
@@ -2903,6 +3439,7 @@ def execute_definition_statement(
     source_path: Path | None = None,
 ) -> int | None:
     is_reserved = False
+    is_onready = False
     probe = line.strip()
     while True:
         if probe.startswith("#reserved"):
@@ -2912,12 +3449,21 @@ def execute_definition_statement(
             # Pure readability counterpart to #reserved: a func/class is public by
             # default already, so this sets nothing — just consumed as a modifier.
             probe = probe[len("#public"):].strip()
+        elif probe.startswith("#onready"):
+            # On a `func`, this means "memoize .call() results" (see FunctionDefinition
+            # .is_onready / --nch), NOT the eager-hoisting meaning #onready has for
+            # `var`/`const` (those are handled separately, before normal execution even
+            # starts — see process_onready_declaration). #onready on a `class` isn't a
+            # recognized modifier; it's simply ignored here (probe just moves past it),
+            # same as it silently was before this feature existed.
+            is_onready = True
+            probe = probe[len("#onready"):].strip()
         else:
             break
 
     if probe.startswith("func "):
         block, next_index = collect_block(lines, index)
-        define_function(probe, block, memory_manager, source_path=source_path, is_reserved=is_reserved)
+        define_function(probe, block, memory_manager, source_path=source_path, is_reserved=is_reserved, is_onready=is_onready)
         return next_index
     if probe.startswith("class "):
         block, next_index = collect_block(lines, index)
@@ -2941,13 +3487,34 @@ def execute_try_block(
     source_path: Path | None = None,
     line_offset: int = 0,
 ) -> int:
-    body, catch_body, next_index = collect_try_block(lines, index)
+    body, catch_header, catch_body, next_index = collect_try_block(lines, index)
     try:
         execute_block(body, memory_manager, current_dir, trace=trace, source_path=source_path,
                       line_offset=line_offset + index + 1)
-    except Exception:
-        if not catch_body:
+    except _CONTROL_FLOW_SIGNALS:
+        # return/break/continue/loop must pass straight through — never treated as an
+        # error a catch/except clause could match or suppress (see _CONTROL_FLOW_SIGNALS).
+        raise
+    except Exception as exc:
+        if catch_header is None:
+            # No catch/except clause at all: nothing to filter against, nothing to run.
             raise
+        error_types, capture_var = parse_catch_header(catch_header)
+        if error_types and not any(_error_type_matches(exc, requested) for requested in error_types):
+            # `except SomeSpecificType -> e` only suppresses that type (or a subclass of
+            # it, e.g. `except LookupError` also catches IndexError/KeyError) — anything
+            # else keeps propagating, exactly like a plain `except SomeType` would in
+            # every other language that has typed catches.
+            raise
+        if capture_var:
+            message = format_error(exc)
+            if memory_manager.has_local(capture_var):
+                memory_manager.assign(capture_var, message)
+            else:
+                memory_manager.allocate(capture_var, "str", message, is_ready=True)
+        # An intentionally empty catch/except body (`catch\nend`) is a deliberate
+        # "suppress and do nothing" — execute_block on an empty list is a harmless no-op,
+        # so it's never treated the same as "there was no catch clause at all" above.
         execute_block(catch_body, memory_manager, current_dir, trace=trace, source_path=source_path,
                       line_offset=line_offset + index + 1 + len(body) + 1)
     return next_index
@@ -2991,22 +3558,37 @@ def execute_control_block_statement(
     return None
 
 
-def execute_free_statement(line: str, memory_manager: MemoryManager, current_dir: Path) -> bool:
-    normalized = line[1:] if line.startswith("$") else line
-    if not (normalized.startswith("free ") or normalized.startswith("free(")):
-        return False
+def _split_top_level_commas(text: str) -> list[str]:
+    """Split `text` on commas that aren't nested inside (), [], or {} — used for
+    `free($$a, $$b, $$c)` so a target expression that itself contains a comma inside
+    brackets (unlikely for `free`, but consistent with how the rest of the language
+    treats comma-separated lists) doesn't get split in the wrong place."""
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for char in text:
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        if char == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    parts.append("".join(current))
+    return [p.strip() for p in parts if p.strip()]
 
-    arg_text = normalized[len("free"):].strip()
-    if arg_text.startswith("(") and arg_text.endswith(")"):
-        arg_text = arg_text[1:-1].strip()
 
+def _free_single_target(arg_text: str, memory_manager: MemoryManager, current_dir: Path) -> None:
     if arg_text.startswith("$$"):
         # Preferred form: `$free($$name)` — the same `$$` reference syntax used
         # everywhere else in the language (pointer creation, event.connect(), selective
         # imports) to mean "a reference to this named symbol", rather than its value.
         # Freeing whatever it resolves to works uniformly for a plain variable, a
-        # function, a class, or an imported module namespace (`@from ... @as alias`) —
-        # MemoryManager doesn't distinguish slot "kinds" for release purposes, only names.
+        # function, a class, an event, or an imported module namespace (`@from ... @as
+        # alias`) — MemoryManager doesn't distinguish slot "kinds" for release purposes,
+        # only names.
         pointer = Pointer(target=arg_text[2:].strip(), memory_manager=memory_manager, current_dir=current_dir)
         target = pointer.name
     else:
@@ -3022,8 +3604,25 @@ def execute_free_statement(line: str, memory_manager: MemoryManager, current_dir
 
     if memory_manager.has(target):
         memory_manager.release(target)
-        return True
+        return
     raise NameError(f"free: '{target}' not found")
+
+
+def execute_free_statement(line: str, memory_manager: MemoryManager, current_dir: Path) -> bool:
+    normalized = line[1:] if line.startswith("$") else line
+    if not (normalized.startswith("free ") or normalized.startswith("free(")):
+        return False
+
+    arg_text = normalized[len("free"):].strip()
+    if arg_text.startswith("(") and arg_text.endswith(")"):
+        arg_text = arg_text[1:-1].strip()
+
+    # `free($$a, $$b, $$c)` (or the bare-name / already-a-pointer-variable forms, mixed
+    # freely): one or several targets, comma-separated — each freed independently, in
+    # the order given.
+    for single_target in _split_top_level_commas(arg_text):
+        _free_single_target(single_target, memory_manager, current_dir)
+    return True
 
 
 def execute_expand_memory_statement(line: str, memory_manager: MemoryManager, current_dir: Path) -> bool:
@@ -3451,6 +4050,21 @@ def execute_use(file_path: Path, memory_manager: MemoryManager, importer_lines: 
         for name, slot in temp_memory._slots.items():
             if slot.is_reserved or name not in used_names:
                 continue
+            # BUGFIX (reported by Katsuo, confirmed by regression test below): this used
+            # to call memory_manager.allocate(...) unconditionally, which raises
+            # "Variable already declared" the moment a promoted name already exists
+            # LOCALLY in the importer's own scope — which happens routinely, since
+            # every stdutils class (vec2, vec2i, vec3, vec3i, color, ...) is already
+            # globally available in every program (stdutils.gbn auto-loads before any
+            # user script runs). A module that re-exports one of those (e.g. math.gbn
+            # re-exporting vec2i from stdutils, which random.gbn in turn `@use`s) would
+            # crash the *importer's* `@use` on a name the importer never even wrote —
+            # not a real conflict, just the same well-known symbol reaching the same
+            # scope twice. Skipping an already-present local name (rather than
+            # re-declaring it) makes `@use` idempotent for these re-exports, exactly
+            # like importing the same symbol twice is a no-op in most languages.
+            if name in memory_manager._slots:
+                continue
             memory_manager.allocate(
                 name, slot.type_name, slot.value, immutable=slot.immutable,
                 max_size=slot.max_size, element_type=slot.element_type,
@@ -3701,10 +4315,25 @@ def execute_from_selective(
         memory_manager.allocate(alias, "any", resolved)
         return
     for name, value in resolved.items():
-        try:
-            memory_manager.assign(name, value)
-        except NameError:
-            memory_manager.allocate(name, infer_type(value), value)
+        # BUGFIX (reported by Katsuo, confirmed by regression test below): this used
+        # to try memory_manager.assign(name, value) first, falling back to allocate()
+        # only on NameError. assign() walks UP the parent chain to find and update an
+        # existing binding wherever it already lives — correct for a normal
+        # `$name = value` statement, but wrong here: if the requested symbol already
+        # exists in an ANCESTOR scope (e.g. `vec2`, always present globally via the
+        # auto-loaded stdlib), assign() silently updated that ancestor instead of
+        # creating a binding in the CURRENT scope. For a nested selective import (a
+        # module doing `@from other @use $$x` while itself being loaded by an outer
+        # selective import), that meant the module's own temp scope never got a local
+        # slot for the name at all — so the outer import's lookup right after this
+        # call (`temp_memory._slots.get(name)`) came back empty, raising
+        # "'vec2' not found in module 'math.gbn'" even though the import had, in a
+        # sense, "worked" (just in the wrong scope). Allocating directly into the
+        # local scope instead (is_ready=True to allow re-importing the same name
+        # without an "already declared" error) fixes this at every nesting depth, and
+        # matches what `@use $$name` is supposed to mean: bind this name, here, now —
+        # never delegate the binding somewhere else up the chain.
+        memory_manager.allocate(name, infer_type(value), value, is_ready=True)
 
 
 def run_program(memory_manager: MemoryManager, current_dir: Path) -> None:

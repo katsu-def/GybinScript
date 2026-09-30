@@ -1,3 +1,5 @@
+# (C) 2025 - 2026 Kātsu D. <jensaki152@gmail.com>
+
 # ALL:
 # Paquete principal de GBN.
 # `Parser.py` contiene el entrypoint de consola.

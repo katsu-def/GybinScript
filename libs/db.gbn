@@ -1,0 +1,187 @@
+-- Custom document database for GBN — no SQL, no query language: everything is a
+-- normal GBN dict/array/function. A Database is a named group of Collections; a
+-- Collection is an array of dict "records", each auto-assigned an integer "_id" on
+-- insert. Persists as a single JSON file (via json.gbn) written on demand with
+-- .save() — nothing writes to disk on its own.
+
+@from json.gbn @use $$_dumps, $$_read
+
+
+class Database
+	var path: str = ""
+	var collections: dict = NULL
+	var next_ids: dict = NULL
+
+	func init(path: str) -> NULL
+		$self.path = $path
+		$self.collections = {}
+		$self.next_ids = {}
+		if $file_exists($path)
+			$self.load()
+		end
+	end
+
+	-- Writes the whole database to $self.path as one JSON file.
+	func save() -> NULL
+		var payload: dict = {}
+		$payload["collections"] = $self.collections
+		$payload["next_ids"] = $self.next_ids
+		$file_write($self.path, _dumps($payload))
+	end
+
+	-- Reloads from $self.path, replacing whatever is currently in memory. Called
+	-- automatically by init() when the file already exists; call it yourself to pick
+	-- up changes written by another process/run since this Database was opened.
+	func load() -> NULL
+		var raw: str = $file_read($self.path)
+		if $len($raw) == 0
+			return NULL
+		end
+		var payload: any = _read($raw)
+		$self.collections = $payload["collections"]
+		$self.next_ids = $payload["next_ids"]
+	end
+
+	-- Returns a handle to the named collection, creating it (empty) on first use.
+	-- Cheap to call repeatedly — it never copies the underlying records.
+	func collection(name: str) -> Collection
+		if not ($name in $self.collections)
+			$self.collections[$name] = []
+			$self.next_ids[$name] = 1
+		end
+		return $Collection($self, $name)
+	end
+
+	func collection_names() -> array
+		var names: array = []
+		for key in $self.collections
+			$names.push_back($key)
+		end
+		return $names
+	end
+
+	-- Deletes an entire collection (and its id counter). Does nothing if it doesn't exist.
+	func drop(name: str) -> NULL
+		if $name in $self.collections
+			$self.collections.remove($name)
+			$self.next_ids.remove($name)
+		end
+	end
+end
+
+
+-- A view onto one named collection inside a Database — holds no data of its own, so
+-- creating one (via Database.collection()) is always cheap and multiple handles to
+-- the same collection always see each other's changes immediately.
+class Collection
+	var db: Database = NULL
+	var name: str = ""
+
+	func init(db: Database, name: str) -> NULL
+		$self.db = $db
+		$self.name = $name
+	end
+
+	func _records() -> array
+		return $self.db.collections[$self.name]
+	end
+
+	-- Stores a COPY of `record` with an auto-assigned "_id" added, and returns that id.
+	-- `record` itself is left untouched (so re-inserting the same dict variable twice
+	-- produces two independent records, not one record aliased twice).
+	func insert(record: dict) -> int
+		var new_id: int = $self.db.next_ids[$self.name]
+		var stored: dict = $record.duplicate()
+		$stored["_id"] = $new_id
+		$self._records().push_back($stored)
+		$self.db.next_ids[$self.name] = $new_id + 1
+		return $new_id
+	end
+
+	func all() -> array
+		return $self._records()
+	end
+
+	func count() -> int
+		return $self._records().size()
+	end
+
+	-- Every record where record[field] == value.
+	func find(field: str, value: any) -> array
+		var results: array = []
+		for record in $self._records()
+			if $field in $record and $record[$field] == $value
+				$results.push_back($record)
+			end
+		end
+		return $results
+	end
+
+	-- Like find(), but only the first match (or NULL).
+	func find_one(field: str, value: any) -> any
+		for record in $self._records()
+			if $field in $record and $record[$field] == $value
+				return $record
+			end
+		end
+		return NULL
+	end
+
+	func find_by_id(record_id: int) -> any
+		return $self.find_one("_id", $record_id)
+	end
+
+	-- Custom filtering with a function reference instead of a fixed field/value match —
+	-- `predicate` is called once per record with that record as its only argument, and
+	-- every record it returns true for is included:
+	--   func is_adult(r: dict) -> bool
+	--       return $r["age"] >= 18
+	--   end
+	--   var adults: array = $users.find_custom($$is_adult)
+	func find_custom(predicate: ptr[func]) -> array
+		var results: array = []
+		for record in $self._records()
+			if $predicate.call($record)
+				$results.push_back($record)
+			end
+		end
+		return $results
+	end
+
+	-- Merges `changes` into the record with this "_id" (existing fields are
+	-- overwritten, new fields are added). Returns whether a record was found.
+	func update(record_id: int, changes: dict) -> bool
+		var records: array = $self._records()
+		var i: int = 0
+		while $i < $records.size()
+			if $records[$i]["_id"] == $record_id
+				for key in $changes
+					$records[$i][$key] = $changes[$key]
+				end
+				return true
+			end
+			$i = $i + 1
+		end
+		return false
+	end
+
+	-- Deletes the record with this "_id". Returns whether one was found.
+	func remove(record_id: int) -> bool
+		var records: array = $self._records()
+		var i: int = 0
+		while $i < $records.size()
+			if $records[$i]["_id"] == $record_id
+				$records.remove($i)
+				return true
+			end
+			$i = $i + 1
+		end
+		return false
+	end
+
+	-- Removes every record in the collection (keeps the collection itself, and does
+	-- NOT reset the "_id" counter — new records keep getting fresh ids).
+	func clear() -> NULL
+		$self.db.collections[$self.name] = []
+	end
+end

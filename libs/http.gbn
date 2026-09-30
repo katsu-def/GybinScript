@@ -1,0 +1,131 @@
+-- HTTP client library for GBN.
+-- Every function returns a plain dict shaped like:
+--   {"ok": bool, "status": int, "headers": dict, "body": str, "error": str|NULL}
+-- "ok" is true only for a 2xx/3xx response that actually came back. A non-2xx status
+-- (404, 500, ...) is still a real, complete response — check "status", not "ok", to
+-- branch on that. "ok" being false with "status" 0 means the request never reached a
+-- server at all (DNS failure, timeout, connection refused, ...) — "error" explains why.
+-- Nothing here ever raises for a network-level failure; only a genuine mistake (a
+-- malformed call) does.
+
+@from .net.py @as ___net
+@from json.gbn @use $$_dumps, $$_read
+@use strings.gbn
+
+const _HTTP_DEFAULT_TIMEOUT: float = 15.0
+
+
+func _http_get(url: str) -> dict
+	return $___net.http_get($url, {}, _HTTP_DEFAULT_TIMEOUT)
+end
+
+
+func _http_get_with(url: str, headers: dict, timeout: float) -> dict
+	return $___net.http_get($url, $headers, $timeout)
+end
+
+
+func _http_post(url: str, body: str) -> dict
+	return $___net.http_post($url, $body, {}, _HTTP_DEFAULT_TIMEOUT)
+end
+
+
+func _http_post_with(url: str, body: str, headers: dict, timeout: float) -> dict
+	return $___net.http_post($url, $body, $headers, $timeout)
+end
+
+
+func _http_put(url: str, body: str) -> dict
+	return $___net.http_put($url, $body, {}, _HTTP_DEFAULT_TIMEOUT)
+end
+
+
+func _http_put_with(url: str, body: str, headers: dict, timeout: float) -> dict
+	return $___net.http_put($url, $body, $headers, $timeout)
+end
+
+
+func _http_delete(url: str) -> dict
+	return $___net.http_delete($url, {}, _HTTP_DEFAULT_TIMEOUT)
+end
+
+
+func _http_delete_with(url: str, headers: dict, timeout: float) -> dict
+	return $___net.http_delete($url, $headers, $timeout)
+end
+
+
+func _http_request(method: str, url: str, headers: dict, body: str, timeout: float) -> dict
+	return $___net.http_request($method, $url, $headers, $body, $timeout)
+end
+
+
+-- JSON convenience: sends `data` as a JSON body (with Content-Type set), and — if the
+-- response looks like JSON — parses "body" into "json" on the way back so the caller
+-- doesn't have to call _read() themselves for the common case.
+func _http_post_json(url: str, data: dict) -> dict
+	var response: dict = $___net.http_post_json($url, $data, {}, _HTTP_DEFAULT_TIMEOUT)
+	$response["json"] = _http_try_parse_json($response["body"])
+	return $response
+end
+
+
+func _http_post_json_with(url: str, data: dict, headers: dict, timeout: float) -> dict
+	var response: dict = $___net.http_post_json($url, $data, $headers, $timeout)
+	$response["json"] = _http_try_parse_json($response["body"])
+	return $response
+end
+
+
+-- Same idea for a plain GET whose response body is expected to be JSON.
+func _http_get_json(url: str) -> dict
+	var response: dict = $___net.http_get($url, {}, _HTTP_DEFAULT_TIMEOUT)
+	$response["json"] = _http_try_parse_json($response["body"])
+	return $response
+end
+
+
+func _http_get_json_with(url: str, headers: dict, timeout: float) -> dict
+	var response: dict = $___net.http_get($url, $headers, $timeout)
+	$response["json"] = _http_try_parse_json($response["body"])
+	return $response
+end
+
+
+-- Internal: never lets a non-JSON or empty body break the caller — "json" is simply
+-- NULL when the body isn't parseable JSON, same spirit as every "ok"/"error" field
+-- above: a network/format hiccup is something to check for, not something that crashes
+-- the script.
+func _http_try_parse_json(body: str) -> any
+	if $len($body) == 0
+		return NULL
+	end
+	try
+		return _read($body)
+	catch
+		return NULL
+	end
+end
+
+
+-- Percent-encodes a string for safe use inside a URL (query parameters, path
+-- segments containing spaces/special characters, etc.).
+func _url_encode(text: str) -> str
+	return $___net.url_encode($text)
+end
+
+
+-- Builds a query string from a dict, e.g. {"q": "gbn lang", "page": 2} ->
+-- "q=gbn%20lang&page=2" — append it to a URL yourself with "?" or "&" as appropriate.
+func _http_build_query(params: dict) -> str
+	var sb: StringBuilder = $StringBuilder()
+	var first: bool = true
+	for key in $params
+		if not $first
+			$sb.append("&")
+		end
+		$sb.append(_url_encode($key) + "=" + _url_encode(str($params[$key])))
+		$first = false
+	end
+	return $sb.to_string()
+end

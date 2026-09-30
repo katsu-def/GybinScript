@@ -1,0 +1,18 @@
+#!/usr/bin/Gybin
+
+
+$nan.connect($$init)
+func init() -> NULL
+	try
+		$que = 10
+
+	catch $$NameError -> e
+
+		$print(True, $e)
+		
+	
+	end
+	--$breakpoint()
+end
+
+$init()

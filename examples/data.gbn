@@ -1,0 +1,16 @@
+#!/usr/bin/Gybin
+
+@use db
+
+#onready var save_path: str = "MyBase.json"
+
+var global_data: Database = $Database($save_path)
+var users: Collection = $global_data.collection("users")
+var id: int = $users.insert({
+	"name": "Carlos", 
+	"age": 34, 
+	"mail": "carlos@example.com"
+	})
+
+$users.update(id, {"name": "Angel"})
+$global_data.save()

@@ -1,0 +1,24 @@
+-- ansi.gbn
+-- ANSI terminal escape helpers for GBN.
+-- Centralizes the escape sequences used by terminal-based programs so that
+-- scripts don't have to spell out "\x1b[31m" dozens of times.
+
+#onready const _ANSI_CLEAR: str[32] = "\x1b[2J\x1b[H"
+#onready const _ANSI_HOME: str[8] = "\x1b[H"
+#onready const _ANSI_CLEAR_LINE: str[8] = "\x1b[2K"
+#onready const _ANSI_HIDE_CURSOR: str[16] = "\x1b[?25l"
+#onready const _ANSI_SHOW_CURSOR: str[16] = "\x1b[?25h"
+#onready const _ANSI_RESET: str[8] = "\x1b[0m"
+#onready const _ANSI_BOLD: str[8] = "\x1b[1m"
+#onready const _ANSI_DIM: str[8] = "\x1b[2m"
+
+#onready const _ANSI_RED: str[8] = "\x1b[31m"
+#onready const _ANSI_GREEN: str[8] = "\x1b[32m"
+#onready const _ANSI_YELLOW: str[8] = "\x1b[33m"
+#onready const _ANSI_BLUE: str[8] = "\x1b[34m"
+#onready const _ANSI_MAGENTA: str[8] = "\x1b[35m"
+#onready const _ANSI_CYAN: str[8] = "\x1b[36m"
+#onready const _ANSI_WHITE: str[8] = "\x1b[37m"
+#onready const _ANSI_GREY: str[8] = "\x1b[90m"
+
+

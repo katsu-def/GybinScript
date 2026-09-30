@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+# Gybin 1.7.0 Stable
+# (C) 2025 - 2026 Kātsu D. <jensaki152@gmail.com>
+
 from __future__ import annotations
 
 # ALL:
@@ -53,6 +56,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
                         help="Enable warning messages")
     parser.add_argument("--nc", action="store_true",
                         help="No console: suppress all stdout output (stderr/errors still shown)")
+    parser.add_argument("--nch", action="store_true",
+                        help="No cache: disable #onready func memoization and preload() caching for this run")
     return parser
 
 
@@ -61,6 +66,7 @@ def apply_runtime_flags(args: argparse.Namespace) -> None:
     engine.SHOW_RETURNS = args.pr
     engine.TRACE = args.tr
     engine.WARNINGS = args.w
+    engine.NO_CACHE = args.nch
 
 
 def redirect_stdout_for_no_console(no_console: bool) -> Any:
@@ -106,7 +112,7 @@ def execute_program_file(path: Path, args: argparse.Namespace) -> tuple[bool, fl
         engine.process_source_lines(lines, engine.memory, path.parent, trace=args.tr, source_path=path)
     except Exception as exc:
         had_error = True
-        print(f"Error: {exc}", file=sys.stderr)
+        print(f"{engine.format_error(exc)}", file=sys.stderr)
         if args.fc:
             if engine.WARNINGS:
                 print("Warning: forcing compilation despite errors", file=sys.stderr)

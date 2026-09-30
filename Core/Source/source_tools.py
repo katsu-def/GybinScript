@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 
+# (C) 2025 - 2026 Kātsu D. <jensaki152@gmail.com>
+
 # ALL:
 # Este archivo contiene herramientas puras de lectura de codigo fuente.
 # Las funciones no ejecutan programas ni modifican memoria; solo convierten
@@ -24,7 +26,7 @@ import re
 # Los helpers de comentarios/bloques limpian texto preservando strings.
 # `is_blank` e `is_comment` ayudan al despachador de lineas del motor.
 
-from Core.runtime import TYPE_MAP
+from Core.runtime import TYPE_MAP, PTR_KIND_KEYWORDS
 
 
 def _is_identifier(name: str) -> bool:
@@ -95,8 +97,67 @@ def parse_annotation(annotation: str) -> tuple[str, int | None, str | None]:
     # annotation (no array/dict-style brackets), but isn't in TYPE_MAP since Pointer
     # is defined in Core.engine and TYPE_MAP lives here in Core.runtime — the engine
     # validates it at runtime via isinstance(value, Pointer) instead.
-    if lowered == "ptr":
-        return "ptr", None, None
+    #
+    # Two OPTIONAL bracket groups narrow what the pointer is allowed to target:
+    #   ptr[var,const]        — only a pointer to a variable or constant (any value type)
+    #   ptr[var][int,float]   — a pointer to a variable holding specifically an int or float
+    #   ptr[][int]            — first bracket empty = any kind, still requires an int value
+    #   ptr[class][Fighter]   — a pointer to a class — for `class`, the SECOND bracket isn't
+    #                           a "data type" (a class doesn't hold one the way a variable
+    #                           holds an int/float/etc.) but WHICH class(es) specifically are
+    #                           accepted: `Fighter` itself, or any class that `extends` it
+    #                           (walked the same way instance-of-class checks already are).
+    #   ptr / ptr[] / ptr[][] — no restriction at all (equivalent to today's bare `ptr`).
+    # Kind keywords reuse the exact words already used to declare each of these
+    # (var/const/func/class/event) — see PTR_KIND_KEYWORDS. Multiple comma-separated
+    # kinds/types are allowed in each bracket, same comma-list convention used
+    # everywhere else in this file (array[T1,T2], multi-type annotations, ...).
+    if lowered == "ptr" or lowered.startswith("ptr["):
+        if lowered == "ptr":
+            return "ptr", None, None
+        if not annotation_text.endswith("]"):
+            raise TypeError(f"Invalid ptr annotation: {annotation}")
+        content = annotation_text[len("ptr["):-1]
+        if "][" in content:
+            parts = content.split("][")
+            if len(parts) != 2:
+                raise TypeError(f"Invalid ptr annotation: {annotation}")
+            kinds_text, types_text = parts[0].strip(), parts[1].strip()
+        else:
+            kinds_text, types_text = content.strip(), ""
+
+        kinds_spec = ""
+        if kinds_text:
+            kind_list = [k.strip().lower() for k in kinds_text.split(",") if k.strip()]
+            if "any" not in kind_list:
+                for k in kind_list:
+                    if k not in PTR_KIND_KEYWORDS:
+                        raise TypeError(
+                            f"Invalid ptr kind '{k}': must be one of 'any', "
+                            f"{', '.join(sorted(PTR_KIND_KEYWORDS))}"
+                        )
+                kinds_spec = ",".join(kind_list)
+            # else: "any" anywhere in the list makes the whole bracket unrestricted —
+            # same as leaving it empty (`ptr[]`) — since "any" already covers every
+            # other kind that could be listed alongside it.
+
+        types_spec = ""
+        if types_text:
+            type_list = [
+                _normalize_type_or_identifier(t.strip(), "ptr value type")
+                for t in types_text.split(",") if t.strip()
+            ]
+            if "any" not in type_list:
+                types_spec = ",".join(type_list)
+            # else: same "any wins" rule as the kind bracket above.
+
+        if not kinds_spec and not types_spec:
+            return "ptr", None, None
+        # Packed into element_type as "kinds||types" (either half may be empty, meaning
+        # "no restriction" for that half specifically) — "||" can't collide with a real
+        # kind/type name, so the engine can tell a ptr spec apart from a plain array/dict
+        # element_type on sight (see MemoryManager._validate_element_types in engine.py).
+        return "ptr", None, f"{kinds_spec}||{types_spec}"
 
     if "," in annotation_text and not (lowered.startswith("array[") or lowered.startswith("dict[")):
         types_list = [t.strip() for t in annotation_text.split(",")]

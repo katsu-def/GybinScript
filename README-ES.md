@@ -2,7 +2,7 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/katsu-def/GybinScript)
 
-> **Versión:** 1.6.1  
+> **Versión:** 1.7  
 > **Extensión de archivos:** `.gbn`  
 > **Intérprete:** `Core/Gybin` \ `/usr/bin/Gybin`
 > **Ejecución:** `Gybin (Dirección de archivo: Mi_script.gbn)`
@@ -80,6 +80,7 @@ Gybin mi_script.gbn [opciones]
 | `--i RUTA_ICONO` | Ícono para el ejecutable compilado (solo con `--c`/`--fc`) |
 | `--w` | Activa los mensajes de advertencia (análisis estático) |
 | `--nc` | Suprime toda salida estándar (los errores siguen mostrándose) |
+| `--nch` | Desactiva el caché en esta ejecución: las funciones `#onready` siempre se ejecutan y `$preload` siempre lee del disco — ver [§7](#funciones-en-caché-onready-func) y [§18](#caché-y---nch) |
 
 ### Ejemplo
 
@@ -103,7 +104,7 @@ GybinScript tiene seis tipos primitivos y dos tipos de colección:
 | `NULL` | Valor nulo / ausencia de valor | `NULL` |
 | `array[T,...]` | Lista tipada de elementos | `[1, 2, 3]` |
 | `dict[V,...]` | Diccionario tipado de valores | `{"a": 1}` |
-| `ptr` | Puntero/referencia a otra variable, constante, función o clase (ver [§15](#15-punteros)) | `$$hp` |
+| `ptr` | Puntero/referencia a otra variable, constante, función, clase o evento; se puede acotar con `ptr[tipos_de_destino][tipos_de_dato]` (ver [§15](#15-punteros)) | `$$hp` |
 
 **Coerciones automáticas:**
 - Un `int` asignado a un `float` se convierte automáticamente a `float`.
@@ -222,6 +223,8 @@ El modificador `#onready` declara una variable antes de que el programa comience
 ```
 
 Cuando se usa también se evitan reasignaciones de un mismo valor.
+
+> `#onready` también se puede poner antes de una función, donde en cambio guarda en caché sus resultados — ver [Funciones en caché](#funciones-en-caché-onready-func).
 
 ### `#reserved`
 
@@ -382,6 +385,89 @@ end
 ```
 
 > ! La misma regla de coincidencia de anchos aplica a los argumentos: quien llame pasando una variable declarada con un ancho explícito distinto al del parámetro necesita convertirla explícitamente primero.
+
+### Funciones en caché (`#onready func`)
+
+Poner `#onready` antes de una función guarda sus resultados en caché: la primera llamada con un conjunto de argumentos ejecuta el cuerpo, y cualquier llamada posterior con exactamente los mismos argumentos devuelve el resultado guardado sin volver a ejecutarlo.
+
+```gbn
+#onready func cuadrado(n: int) -> int
+    $print("calculando...")
+    return $n * $n
+end
+
+$print($cuadrado(4))   -- calculando... / 16
+$print($cuadrado(4))   -- 16 (desde el caché)
+$print($cuadrado(5))   -- calculando... / 25
+```
+
+- Cada conjunto distinto de argumentos tiene su propio resultado guardado.
+- En un método de clase, cada instancia tiene su propio caché.
+- Una llamada en caché no repite los efectos secundarios de la función (impresiones, escritura de archivos...), así que encaja en funciones que devuelven el mismo resultado para los mismos argumentos.
+- Ejecuta con `--nch` para desactivar el caché por completo en esa ejecución.
+
+### Parámetros resto (`!`)
+
+Un parámetro cuyo nombre empieza con `!` junta los argumentos que recibe en un array:
+
+```gbn
+func sumar(!valores[10]: int) -> int
+    var total: int = 0
+    for n in $valores
+        $total += $n
+    end
+    return $total
+end
+
+$print($sumar(1, 2, 3, 4))   -- 10
+$print($sumar())             -- 0
+```
+
+- `[10]` (opcional) define cuántos valores puede contener, y `: int` (opcional) el tipo de cada uno — las mismas reglas que `array[int][10]`.
+- Una función solo puede tener un parámetro `!`, y debe ser el último. Los parámetros anteriores reciben sus argumentos primero, y el parámetro `!` junta el resto:
+
+```gbn
+func reporte(titulo: str, !lineas: str) -> NULL
+    $print($titulo)
+    for linea in $lineas
+        $print(" - " + $linea)
+    end
+end
+
+$reporte("Log", "iniciado", "cargado", "listo")
+```
+
+### Parámetros con nombre (`?`)
+
+Un parámetro marcado con `?` se rellena por nombre al llamar a la función, escrito como `$nombre=valor`:
+
+```gbn
+func set_modulate(?r: float, ?g: float, ?b: float, a: float) -> color
+    return $color($r, $g, $b, $a)
+end
+
+var c: color = $set_modulate(1.0, $r=0.6, $g=0.3, $b=0.9)
+```
+
+- El `$` antes del nombre es obligatorio.
+- Solo los parámetros marcados con `?` se pueden dar por nombre; usar un nombre que no coincide con ninguno es un error.
+- Un parámetro `?` que no se entrega queda en `NULL`.
+- Los constructores de clase funcionan igual: si `init` declara `?hp: int`, entonces `$Player($hp=50)` lo rellena.
+
+### Parámetros resto con nombre (`?!`)
+
+Combinar ambas marcas crea un parámetro con nombre que junta un array. A diferencia de un `!` simple, una función puede declarar varios parámetros `?!`, ya que cada uno se rellena por nombre con su propio array:
+
+```gbn
+func grupos(?!a: int, ?!b: int) -> NULL
+    $print($a)   -- [1, 2, 3]
+    $print($b)   -- [4, 5]
+end
+
+$grupos($a=[1, 2, 3], $b=[4, 5])
+```
+
+Un parámetro `!` simple no se puede combinar con parámetros `?!` en la misma función.
 
 ### Función principal (`init`) y `run`
 
@@ -643,6 +729,8 @@ else
 end
 ```
 
+`elif` también se acepta como forma corta de `elseif`.
+
 ### Bucle `while`
 
 ```gbn
@@ -737,11 +825,87 @@ except
 end
 ```
 
+Sin ningún tipo, `catch`/`except` maneja todos los errores. Un cuerpo de `catch`/`except` vacío es válido: silencia el error y no hace nada más.
+
+### Atrapar tipos de error específicos
+
+Escribe uno o más tipos de error después de `catch`/`except` para manejar solo esos. Cada tipo se escribe como un puntero (`$$Tipo`) y varios se separan con comas. Cualquier otro error sigue propagándose con normalidad:
+
+```gbn
+try
+    var y: any = $no_declarada
+except $$NameError
+    $print("variable no declarada")
+end
+
+try
+    -- código que puede fallar
+except $$SyntaxError, $$ValueError
+    $print("problema de sintaxis o de valor")
+end
+```
+
+Atrapar un tipo general también atrapa los más específicos que agrupa: `$$LookupError` maneja tanto `IndexError` como `KeyError`, por ejemplo.
+
+### Guardar el error (`-> nombre`)
+
+Agrega `-> nombre` al final de la cabecera para guardar el error en una variable. Contiene un string con el tipo de error, dónde ocurrió y el mensaje:
+
+```gbn
+try
+    var y: any = $no_declarada
+catch -> e
+    $print($e)   -- NameError: juego.gbn:3:3: Variable not declared: no_declarada
+end
+```
+
+Se combina con los tipos:
+
+```gbn
+except $$ValueError, $$TypeError -> e
+```
+
+### Tipos de error
+
+Todo error muestra su tipo al inicio del mensaje en lugar de un `Error:` genérico:
+
+```
+NameError: juego.gbn:12:3: Variable not declared: x
+```
+
+| Tipo | Se produce cuando |
+|------|-------------------|
+| `NameError` | Una variable, función o clase no está declarada |
+| `TypeError` | Un valor tiene el tipo incorrecto o una operación no es válida para él |
+| `ValueError` | Un valor no es aceptable |
+| `SyntaxError` | El código está mal formado (por ejemplo, un bloque sin `end`) |
+| `IndexError` | Un índice de array está fuera de rango |
+| `KeyError` | Una clave de diccionario no existe |
+| `LookupError` | Agrupa `IndexError` y `KeyError` |
+| `GybinError` | Agrupa los tres errores propios del lenguaje de abajo |
+| `EventError` | Un [evento](#16-eventos) se usa incorrectamente — por ejemplo, conectar algo que no es una referencia a función. También lo maneja `$$TypeError` |
+| `PointerError` | Un [puntero](#15-punteros) se usa incorrectamente, o no coincide con su anotación `ptr[...]`. También lo maneja `$$TypeError` |
+| `BitWidthError` | Un valor no cabe en un `int[N]`/`float[N]`, o una coerción mezcla anchos distintos (ver [§3](#3-tipos-de-datos)). También lo maneja `$$ValueError` |
+
+```gbn
+try
+    var pequeno: int[8] = 500
+except $$BitWidthError -> e
+    $print($e)
+end
+
+try
+    $player_is_dead.connect(5)
+except $$GybinError -> e
+    $print("problema con evento, puntero o ancho de bits: " + $e)
+end
+```
+
 ---
 
 ## 15. Punteros
 
-El operador `$$` crea un puntero a una variable, constante, función o clase existente (ej. `$$hp`, `$$Damage`, `$$self.hp`, `$$arr[0]`). Se tipa con `ptr` — la única anotación que puede contener un valor puntero:
+El operador `$$` crea un puntero a una variable, constante, función, clase o evento existente (ej. `$$hp`, `$$Damage`, `$$self.hp`, `$$arr[0]`, `$$player_is_dead`). Se tipa con `ptr` — la única anotación que puede contener un valor puntero:
 
 ```gbn
 var hp: int = 100
@@ -791,6 +955,46 @@ $fp.call("Carlos")   -- Hola Carlos
 
 Los punteros permiten acceso indirecto y pueden apuntar a rutas complejas (`$$objeto.campo`, `$$array[0]`). Son útiles para alias, referencias dinámicas, y para pasar referencias a funciones (por ejemplo, al conectar handlers a un [evento](#16-eventos)).
 
+### Punteros tipados: `ptr[destino][datos]`
+
+Un `ptr` simple acepta un puntero a cualquier cosa. Dos corchetes opcionales lo acotan:
+
+- **Primer corchete — a qué puede apuntar:** `var`, `const`, `event`, `func`, `class` (separa varios con comas).
+- **Segundo corchete — el tipo de dato que debe contener:** `int`, `str`, el nombre de una clase, etc. (separa varios con comas).
+
+Un corchete vacío, o con `any` dentro, significa que esa parte no tiene restricción.
+
+```gbn
+var p1: ptr[func] = $$saludar                -- solo funciones
+var p2: ptr[var,const][int,float] = $$hp      -- una variable o constante que contenga un int o un float
+var p3: ptr[var][Fighter] = $$heroe           -- una variable que contenga una instancia de Fighter
+var p4: ptr[event] = $$player_is_dead         -- solo eventos
+var p5: ptr[] = $$hp                           -- igual que un ptr simple
+var p6: ptr[any][any] = $$hp                   -- igual que un ptr simple
+```
+
+Para las clases, el segundo corchete indica qué clase (o clases) acepta: la clase nombrada o cualquier clase que la extienda.
+
+```gbn
+class Fighter
+    var hp: int = 10
+end
+
+class Warrior extends Fighter
+    var armor: int = 5
+end
+
+class Enemy
+    var atk: int = 5
+end
+
+var a: ptr[class][Fighter] = $$Warrior          -- OK: Warrior extiende Fighter
+var b: ptr[class][Fighter,Enemy] = $$Enemy      -- OK
+var c: ptr[class][Fighter] = $$Enemy            -- PointerError
+```
+
+Un puntero que no coincide con su anotación produce un `PointerError` (ver [§14](#14-manejo-de-errores)).
+
 ### Punteros a dirección cruda
 
 Un `ptr` también puede construirse a partir de una dirección entera cruda en lugar de `$$objetivo`:
@@ -827,14 +1031,17 @@ event player_is_dead(entity: str)
 
 Las anotaciones de tipo en los parámetros son solo documentación - un evento no tiene cuerpo propio contra el cual validarlas.
 
-### `.connect(handler)` y `.emit(...)`
+### Métodos
 
-Todo evento expone dos métodos, ambos se llaman con el prefijo `$` como cualquier otra llamada:
+Todo evento expone lo siguiente, todo se usa con el prefijo `$` como cualquier otra llamada:
 
-| Método | Descripción |
-|--------|-------------|
-| `.connect(handler)` | Registra una función para que se ejecute cada vez que el evento se dispare. `handler` debe ser una referencia a función creada con `$$nombre_funcion` - pasar el nombre de la función a secas produce un error |
+| Miembro | Descripción |
+|---------|-------------|
+| `.connect(handler)` | Registra una función para que se ejecute cada vez que el evento se dispare. `handler` debe ser un puntero a una función creado con `$$nombre_funcion`; el nombre a secas, o un puntero a cualquier otra cosa (una variable, clase, evento...), produce un `EventError` |
+| `.disconnect(handler)` | Quita ese handler del evento. No hace nada si no estaba conectado |
+| `.reconnect(handler)` | Desconecta y vuelve a conectar el handler, de modo que queda conectado exactamente una vez — útil para evitar que se ejecute dos veces en cada `.emit()` |
 | `.emit(args...)` | Llama a cada handler conectado, en el orden en que se conectaron, reenviando los argumentos dados. La cantidad de argumentos debe coincidir con la cantidad de parámetros que declara el evento |
+| `.last_connection` | Propiedad (sin paréntesis): un puntero al handler conectado más recientemente, o `NULL` si no hay ninguno conectado |
 
 ```gbn
 event player_is_dead(entity: str)
@@ -851,6 +1058,40 @@ end
 ```
 
 Se pueden conectar varios handlers al mismo evento; todos se ejecutan, en el orden en que fueron conectados, al hacer `.emit(...)`.
+
+`.disconnect(...)` acepta cualquier puntero a la misma función, así que no necesitas guardar el que usaste para conectar:
+
+```gbn
+$player_is_dead.disconnect($$on_player_dead)
+```
+
+```gbn
+$player_is_dead.connect($$on_player_dead)
+$player_is_dead.connect($$on_player_dead)     -- conectado dos veces: se ejecuta dos veces por emit
+$player_is_dead.reconnect($$on_player_dead)   -- ahora está conectado exactamente una vez
+
+$print($player_is_dead.last_connection.name)  -- on_player_dead
+```
+
+### Eventos como condiciones
+
+Un evento se puede usar directamente como condición: es `false` hasta la primera vez que se emite y `true` a partir de entonces.
+
+```gbn
+event level_loaded(name: str)
+
+func init() -> NULL
+    if $level_loaded
+        $print("todavía no se imprime")
+    end
+
+    $level_loaded.emit("Bosque")
+
+    if $level_loaded
+        $print("se imprime: el evento ya fue emitido")
+    end
+end
+```
 
 ---
 
@@ -941,6 +1182,12 @@ Elimina explícitamente una variable del ámbito:
 $free($$mi_dato) 
 ```
 
+`free` acepta uno o varios punteros de cualquier tipo (variables, constantes, funciones, clases, eventos), separados por comas:
+
+```gbn
+$free($$primero, $$segundo, $$tercero)
+```
+
 ### `expand_memory` — ampliar el límite
 
 Aumenta el número máximo de slots disponibles:
@@ -969,6 +1216,19 @@ while $i < 10000
     var x = ($i * 5) + (20 / 2)  -- la expresión se cachea
     $i += 1
 end
+```
+
+### Caché y `--nch`
+
+Dos funcionalidades guardan resultados para ahorrar trabajo en usos repetidos:
+
+- **`#onready func`** recuerda el resultado de una función para cada conjunto distinto de argumentos (ver [§7](#funciones-en-caché-onready-func)).
+- **`$preload(ruta)`** lee un archivo una vez y recuerda su contenido (ver [§19](#19-funciones-nativas-built-ins)).
+
+Ejecuta con `--nch` para desactivar ambas en esa ejecución: las funciones en caché siempre ejecutan su cuerpo, y `$preload` siempre lee del disco.
+
+```bash
+Gybin mi_script.gbn --nch
 ```
 
 ### Garbage collector post-ejecución
@@ -1004,6 +1264,7 @@ Estas funciones están disponibles sin necesidad de importar nada:
 | `$file_write(ruta, contenido)` | Escribe (sobreescribe) un archivo |
 | `$file_append(ruta, contenido)` | Añade contenido al final de un archivo |
 | `$file_exists(ruta)` | Retorna `true` si el archivo existe |
+| `$preload(ruta)` | Lee un archivo como `$file_read`, pero recuerda su contenido — ver abajo |
 
 ### Argumentos con nombre de `$print`
 
@@ -1013,6 +1274,17 @@ Estas funciones están disponibles sin necesidad de importar nada:
 $print("a", "b", sep="-", end="")   -- a-b, sin salto de línea final
 $print("c")
 ```
+
+### `$preload` — leer un archivo una sola vez
+
+`$preload(ruta)` devuelve el contenido completo de un archivo como string, igual que `$file_read(ruta)`. La diferencia es que recuerda el resultado para esa ruta: las llamadas posteriores con la misma ruta devuelven el contenido guardado al instante, sin volver a tocar el disco, aunque el archivo haya cambiado mientras tanto.
+
+```gbn
+var config: str = $preload("config.txt")   -- lee el archivo
+var otra_vez: str = $preload("config.txt") -- devuelve el contenido guardado
+```
+
+Ejecuta con `--nch` para que cada `$preload` lea del disco.
 
 ### `$reprint` — actualizar una línea en el mismo lugar
 

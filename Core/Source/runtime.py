@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# (C) 2025 - 2026 Kātsu D. <jensaki152@gmail.com>
+
 # Este archivo concentra la configuracion compartida del lenguaje.
 # `keys` lista palabras reservadas que el parser reconoce como sintaxis.
 # `EXTFILE` define la extension oficial de los scripts gbn.
@@ -15,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 keys: list[str] = ["func", "class", "var",
-                   "const", "enum", "$", "if", "elseif",
+                   "const", "enum", "$", "if", "elif", "elseif",
                    "else", "while", "for", "in", "match", "case", "event",
                    "is", "or", "not", "and", "NULL",
                    "return", "end", "continue", "break", "loop", "try", "catch", "except",
@@ -35,6 +37,17 @@ TYPE_MAP: dict[str, type] = {
     "any": object,
     "array": list,
     "dict": dict,
+}
+
+# `ptr[kind1,kind2]` — the "kind" keywords a pointer's TARGET can be restricted to,
+# reusing the exact keywords already used to declare each of these (var/const/func/
+# class/event), mapped to what Pointer._kind() actually returns for each in engine.py.
+PTR_KIND_KEYWORDS: dict[str, str] = {
+    "var": "variable",
+    "const": "constant",
+    "event": "event",
+    "func": "function",
+    "class": "class",
 }
 
 SUPPORTED_IMPORT_EXTS: list[str] = [".gbn", ".py", ".h", ".c", ".cpp", ".asm", ".sh", ".bash"]

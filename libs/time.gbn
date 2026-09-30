@@ -2,6 +2,8 @@
 
 @from .sys.py @as ____sys
 
+event _timeout(finish: bool)
+
 func _format_time(__format: str) -> str
     return $____sys.format_time(__format)
 end
@@ -30,12 +32,6 @@ func _seconds() -> int
   return $____sys.seconds()
 end
 
-func _sleep(__seconds: float) -> bool
-  $____sys.sleep(__seconds)
-
-  return true
-end
-
 func _date() -> str
     return $____sys.date()
 end
@@ -50,6 +46,11 @@ end
 
 func _day() -> any
     return $____sys.day()
+end
+	
+func _create_timer(time: float) -> NULL
+	$____sys.sleep($float($time))
+	$_timeout.emit(true)	
 end
 
 var _last_time: float = $float($_seconds())
@@ -70,3 +71,5 @@ func _fps(_time: float) -> int
   return $int(1.0 / $_time)
 
 end
+
+
