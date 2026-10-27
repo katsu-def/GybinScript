@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-# Gybin 1.7.0 Stable
 # (C) 2025 - 2026 Kātsu D. <jensaki152@gmail.com>
 
 from __future__ import annotations
@@ -112,7 +111,7 @@ def execute_program_file(path: Path, args: argparse.Namespace) -> tuple[bool, fl
         engine.process_source_lines(lines, engine.memory, path.parent, trace=args.tr, source_path=path)
     except Exception as exc:
         had_error = True
-        print(f"{engine.format_error(exc)}", file=sys.stderr)
+        print(f"{engine.format_error_display(exc)}", file=sys.stderr)
         if args.fc:
             if engine.WARNINGS:
                 print("Warning: forcing compilation despite errors", file=sys.stderr)

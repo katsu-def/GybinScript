@@ -2,7 +2,7 @@
 -- Standar library
 
 class Engine
-  const VERSION: str[8] = "1.7"
+  const VERSION: str[8] = "1.7.1"
   const AUTHOR: str[10] = "Katsu Dev"
 end
 
@@ -17,9 +17,6 @@ class vec2
 	func init(x: float, y: float) -> NULL
 		$self.x = $x
 		$self.y = $y
-
-		--var result: array[float][2] = [$x, $y]
-		--return $result
 	end
 
 	func zero() -> NULL
@@ -36,9 +33,6 @@ class vec2i
 	func init(x: int, y: int) -> NULL
 		$self.x = $x
 		$self.y = $y
-
-		--var result: array[int][2] = [$x, $y]
-		--return $result
 	end
 
 	func zero() -> NULL
@@ -57,9 +51,6 @@ class vec3
 		$self.x = $x
 		$self.y = $y
 		$self.z = $z
-
-		--var result: array[float][3] = [$x, $y, $z]
-		--return $result
 	end	
 
 	func zero() -> NULL
@@ -79,9 +70,6 @@ class vec3i
 		$self.x = $x
 		$self.y = $y
 		$self.z = $z
-
-		--var result: array[int][3] = [$x, $y, $z]
-		--return $result
 	end
 
 	func zero() -> NULL
@@ -90,6 +78,8 @@ class vec3i
 		$self.z = 0
 	end
 end
+
+
 
 enum Color = {YELLOW, BLUE, RED, GREEN, VIOLET, PURPLE, MAGENTA, PINK, SKYBLUE, BLACK, WHITE, GRAY, ORANGE, LIME}
 
@@ -171,91 +161,109 @@ end
 
 
 func contains(collection: array, element: any) -> bool
-  for item in $collection
-    if $item == $element
-      return true
-    end
-  end
-  return false
+  	for item in $collection
+    	if $item == $element
+      		return true
+    	end
+  	end
+
+	return false
 end
 
 
 func index_of(collection: array, element: any) -> int
-  var position: int = 0
-  for $item in $collection
-    if $item == $element
-      return $position
-    end
-    $position = $position + 1
-  end
-  return -1
+  	var position: int = 0
+  	for $item in $collection
+    	if $item == $element
+      		return $position
+    	end
+    	$position = $position + 1
+  	end
+
+  	return -1
+end
+
+
+func reverse(list: array) -> array
+	var new_list: array = []
+
+	for i in $range(list.size())
+		$new_list.push_back(list[-i])
+	end
+
+	$new_list.push_back(list[0])
+	$new_list.remove(0)
+
+	return $new_list
 end
 
 
 func str_split(text: str[1024], delimiter: str[64]) -> array
-  return text.split(delimiter)
+  	return text.split(delimiter)
 end
 
 
 func str_join(separator: str[64], items: array) -> str
-  var result: str = ""
-  var first: bool = true
-  for $item in $items
-    if first
-      $result = $item
-      $first = false
-    else
-      $result = $result + $separator + $item
+	var result: str = ""
+  	var first: bool = true
+  	for $item in $items
+    	if first
+      		$result = $item
+      		$first = false
+    	else
+      		$result = $result + $separator + $item
+    	end
     end
-  end
-  return $result
+    
+	return $result
 end
 
 
 func to_lower(text: str[1024]) -> str
-  return $text.lower()
+  	return $text.lower()
 end
 
 
 func to_upper(text: str[1024]) -> str
-  return $text.upper()
+  	return $text.upper()
 end
 
 
 func starts_with(text: str[1024], prefix: str[256]) -> bool
-  return $text.startswith($prefix)
+  	return $text.startswith($prefix)
 end
 
 
 func ends_with(text: str[1024], suffix: str[256]) -> bool
-  return $text.endswith($suffix)
+	return $text.endswith($suffix)
 end
 
 
 func has_key(mapping: dict, key: any) -> bool
-  return $key in $mapping
+ 	return $key in $mapping
 end
 
 
-func input(prompt: str[256]) -> str
-  if $prompt is NULL
-    return $_input("")
-  end
-  return $_input($prompt)
+func input(prompt: str[1024]) -> str
+	if $prompt is NULL
+    	return $_input("")
+  	end
+
+  	return $_input($prompt)
 end
 
 
 func merge_dict(destination: dict, source: dict) -> dict
-  var merged: dict = $destination
-  for key in $source
-    $merged[$key] = $source[$key]
-  end
-  return $merged
+	var merged: dict = $destination
+	for key in $source
+    	$merged[$key] = $source[$key]
+    end
+	return $merged
 end
 
 
 func pause() -> NULL
-  $input("pause> ")
+  	$input("pause> ")
 end
 
 
@@ -273,3 +281,188 @@ func min(entry: float, minimun: float) -> float
 	end
 	return $entry
 end
+
+
+func unique(list: array) -> array
+	var new_list: array = []
+
+	for i in $list
+    	if not $i in $new_list
+        	$new_list.append($i)
+        end
+    end
+
+    return $new_list
+end
+
+
+func flatten(!lists: array) -> array
+	var new_list: array = []
+
+	for i in $lists
+		for j in $i
+			$new_list.append($j)
+		end
+	end
+	return $new_list
+end
+
+
+
+func replace(text: str[1024], old: str[256], new: str[256]) -> str
+    var new_text: str = ""
+
+    if $old == ""
+        return $text
+    end
+
+    if $new is NULL
+        $new = ""
+    end
+
+    var i: int = 0
+
+    while $i < $len(text)
+        var matching: bool = true
+
+        for j in $range(len(old))
+            if $i + $j >= $len(text)
+                $matching = false
+                break
+            end
+
+            if $text[i + j] != $old[j]
+                $matching = false
+                break
+            end
+        end
+
+        if $matching
+            $new_text += $new
+            $i += $len(old)
+        else
+            $new_text += $text[i]
+            $i += 1
+        end
+    end
+
+    return $new_text
+end
+
+
+func trim(text: str[1024]) -> str
+	var new_text: str = ""
+	
+	for i in $text
+		if $i != " "
+			$new_text += $i
+		else
+			$new_text += ""
+		end
+	end
+
+	return $new_text
+end
+
+
+func repeat(text: str[1024], n: int) -> str
+	var new_text: str = text
+
+	for i in $range($n)
+		$new_text += $text
+	end
+
+	return new_text
+end
+
+
+func is_ptr(value: any) -> bool
+	try
+		$value.ref
+		return true
+	catch
+		return false
+	end	
+end
+
+
+func is_array(value: any) -> bool
+	try
+		$value[0]
+		return true
+	catch
+		return false
+	end
+	
+end
+
+
+func is_dict(value: any) -> bool
+	try
+		if $value == {}
+			return false
+		end
+		$has_key(value, "nan")
+		return true
+	catch
+		return false
+	end
+	
+end
+
+
+enum Type = {STRING, INT, FLOAT, BOOL, POINTER, OBJECT}
+
+func type_of(variable: any) -> Type
+	if $variable is $str
+		return Type.STRING
+
+	elif $variable is $int
+		return Type.INT
+
+	elif $variable is $float
+		return Type.FLOAT
+
+	elif $variable is $bool
+		return Type.BOOL
+
+	else
+		try
+			$variable.ref
+			return Type.POINTER
+		catch
+			if $variable is NULL or ($variable == [] or $variable == {})
+				return Type.null
+			else
+				return Type.OBJECT
+			end
+		end
+	end
+end
+
+
+func type(variable: any) -> any
+	if $variable is $str
+		return $str
+
+	elif $variable is $int
+		return $int
+
+	elif $variable is $float
+		return $float
+
+	elif $variable is $bool
+		return $bool
+
+	elif $is_ptr(variable)
+		return "<class 'ptr'>"
+	
+	else
+		if $variable is NULL or ($variable == [] or $variable == {})
+			return NULL
+		end
+		
+		return "<class 'object'>"
+	end
+end
+

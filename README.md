@@ -1,36 +1,34 @@
-# GybinScript — User Manual 
+# GybinScript — User Manual
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/katsu-def/GybinScript)
 
-> [Read this manual in Spanish (README-ES.md)](./README-ES.md)
-
-> **Version:** 1.7  
+> **Version:** 1.7.1  
 > **File extension:** `.gbn`  
 > **Interpreter:** `Core/Gybin` \ `/usr/bin/Gybin`
-> **Execution:** `Gybin (File path: My_script.gbn)`
+> **Invocation:** `Gybin (File path: My_script.gbn)`
 
-> ! You can also declare the interpreter on the first line of your code and execute it like any program (Linux only). Ex: 
+> You can also declare the interpreter on the first line of your code and run it like any other program (Linux only). Example: 
 
 ```gbn
-#!/usr/bin/Gybin -- Parser path
+#!/usr/bin/Gybin -- parser path
 
 $print("Hello!") 
 ```
 
 ```bash
-chmod +x My_script.gbn
-./My_script.gbn
+chmod +x Mi_script.gbn
+./Mi_script.gbn
 ```
 
 > Run setup-linux to configure the Gybin launcher in '/usr/bin'
-> Run setup-termux to set up the language in a Termux environment
+> Run setup-termux to configure the language in a Termux environment
 
 ---
 
 ## Table of Contents
 
 1. [Introduction](#1-introduction)
-2. [Console Execution](#2-console-execution)
+2. [Running from the Console](#2-running-from-the-console)
 3. [Data Types](#3-data-types)
 4. [Variables and Constants](#4-variables-and-constants)
 5. [Comments](#5-comments)
@@ -41,15 +39,15 @@ chmod +x My_script.gbn
 10. [Enums](#10-enums)
 11. [Arrays](#11-arrays)
 12. [Dictionaries](#12-dictionaries)
-13. [Control Structures](#13-control-structures)
+13. [Control Flow](#13-control-flow)
 14. [Error Handling](#14-error-handling)
 15. [Pointers](#15-pointers)
 16. [Events](#16-events)
 17. [Modules and Imports](#17-modules-and-imports)
 18. [Memory Management](#18-memory-management)
-19. [Native Functions (built-ins)](#19-native-functions-built-ins)
+19. [Built-in Functions](#19-built-in-functions)
 20. [Standard Library (stdutils)](#20-standard-library-stdutils)
-21. [Compilation to Executable](#21-compilation-to-executable)
+21. [Compiling to an Executable](#21-compiling-to-an-executable)
 22. [Warnings and Static Analysis](#22-warnings-and-static-analysis)
 23. [Rules and Best Practices](#23-rules-and-best-practices)
 
@@ -57,11 +55,11 @@ chmod +x My_script.gbn
 
 ## 1. Introduction
 
-GybinScript is a statically typed and interpreted scripting language with controlled memory management. It is designed to be expressive and predictable: all variables must be declared with a type, blocks are closed with `end`, and the `$` sign is the mandatory prefix to read or modify any variable, or call any function.
+GybinScript is a statically typed, interpreted scripting language with controlled memory management. It is designed to be expressive and predictable: all variables must be declared with a type, blocks are closed with `end`, and `$` is the required prefix for reading or modifying any variable or calling any function.
 
 ---
 
-## 2. Console Execution
+## 2. Running from the Console
 
 ```bash
 Gybin my_script.gbn [options]
@@ -71,47 +69,47 @@ Gybin my_script.gbn [options]
 
 | Flag | Description |
 |------|-------------|
-| `--sm` | Displays memory status upon completing execution |
+| `--sm` | Shows memory status when execution finishes |
 | `--pr` | Automatically prints all values returned by `return` |
-| `--t` | Displays execution time |
-| `--tr` | Displays each executed line instead of normal output |
-| `--c` | Compiles the script to an executable — see [§21](#21-compilation-to-executable). Does **not** execute the script |
-| `--fc` | Unconditionally compiles the script, even if it has errors — see [§21](#21-compilation-to-executable) |
+| `--t` | Shows execution time |
+| `--tr` | Shows each executed line instead of normal output |
+| `--c` | Compiles the script into an executable — see [§21](#21-compiling-to-an-executable). **Does not** run the script |
+| `--fc` | Compiles the script unconditionally, even if it has errors — see [§21](#21-compiling-to-an-executable) |
 | `--n NAME` | Custom name for the compiled executable (only with `--c`/`--fc`) |
-| `--ad PATH[=DEST]` | Packages an extra file/folder into the executable; can be repeated (only with `--c`/`--fc`) |
+| `--ad PATH[=DESTINATION]` | Bundles an extra file/folder into the executable; can be repeated (only with `--c`/`--fc`) |
 | `--i ICON_PATH` | Icon for the compiled executable (only with `--c`/`--fc`) |
 | `--w` | Enables warning messages (static analysis) |
 | `--nc` | Suppresses all standard output (errors are still displayed) |
-| `--nch` | Disables caching for this run: `#onready` functions always execute and `$preload` always reads from disk — see [§7](#cached-functions-onready-func) and [§18](#caching-and---nch) |
+| `--nch` | Disables caching for this run: `#onready` functions always execute and `$preload` always reads from disk — see [§7](#7-functions) and [§18](#18-memory-management) |
 
 ### Example
 
 ```bash
-Gybin game.gbn --sm --w --t
+Gybin juego.gbn --sm --w --t
 ```
 
 ---
 
 ## 3. Data Types
 
-GybinScript features six primitive types and two collection types:
+GybinScript has six primitive types and two collection types:
 
 | Type | Description | Example |
 |------|-------------|---------|
-| `int` | Integer | `20` |
-| `float` | Decimal | `3.1416` |
-| `str[N]` | String with a maximum length N | `"Carlos"` |
+| `int[B]` | Integer with a maximum bit width of B | `20` |
+| `float[B]` | Floating-point number with a maximum bit width of B | `3.1416` |
+| `str[N]` | String with a maximum length of N characters | `"Carlos"` |
 | `bool` | Boolean | `true` / `false` |
-| `any` | No type restriction | — |
-| `NULL` | Null value / absence of value | `NULL` |
+| `any` | Unrestricted type | — |
+| `NULL` | Null value / absence of a value | `NULL` |
 | `array[T,...]` | Typed list of elements | `[1, 2, 3]` |
 | `dict[V,...]` | Typed dictionary of values | `{"a": 1}` |
-| `ptr` | Pointer/reference to another variable, constant, function, class, or event; can be narrowed with `ptr[kinds][types]` (see [§15](#15-pointers)) | `$$hp` |
+| `ptr` | Pointer/reference to another variable, constant, function, class, or event; can be constrained with `ptr[target_types][data_types]` (see [§15](#15-pointers)) | `$$hp` |
 
-**Automatic Coercions:**
+**Automatic coercions:**
 - An `int` assigned to a `float` is automatically converted to `float`.
-- A `float` without a decimal part assigned to an `int` is converted to `int`.
-- A `float` with decimals assigned to an `int` produces a type error.
+- A `float` without a fractional part assigned to an `int` is converted to `int`.
+- A `float` with a fractional part assigned to an `int` raises a type error.
 
 ```gbn
 var age: int = 20
@@ -127,36 +125,36 @@ $print($name)
 
 ### Bit Width for `int` / `float`
 
-Both numeric types use 64 bits by default. Instead of introducing separate type names for smaller bit widths, the same `[N]` size syntax used by `str` is reused to select a narrower width:
+Both numeric types use 64 bits by default. Instead of introducing separate type names for smaller widths, the same `[N]` size syntax already used by `str` is reused to choose a narrower width:
 
 ```gbn
-var integer: int[16] = 1000       -- Signed 16-bit int: -32768..32767
-var decimal: float[32] = 3.14    -- 32-bit float (IEEE-754 single precision)
-var other: float [32] = 2.71      -- A space before the bracket is also accepted
+var integer_value: int[16] = 1000       -- signed 16-bit int: -32768..32767
+var decimal_value: float[32] = 3.14    -- 32-bit float (IEEE-754 single precision)
+var other_value: float [32] = 2.71      -- a space before the bracket is also accepted
 ```
 
-| Type | Valid Widths |
-|------|--------------|
-| `int[N]` | 8, 16, 32, 64 |
-| `float[N]` | 16, 32, 64 |
+| Type | Valid widths |
+|------|-----------------|
+| `int[B]` | 8, 16, 32, 64 |
+| `float[B]` | 16, 32, 64 |
 
-A value that does not fit into the declared width results in an immediate error, along with a suggestion for a width that would contain it:
+A value that does not fit the declared width causes an immediate error, with a suggestion for a width that would fit it:
 
 ```gbn
-var small: int[8] = 500  -- error: does not fit in a signed 8-bit int (range -128..127). Use int[16] or larger.
+var small: int[8] = 500  -- error: does not fit in a signed 8-bit int (range -128..127). Use int[16] or higher.
 ```
 
-**Coercion between `int` and `float` requires bit widths to match.** Implicit int <-> float conversions (see "Automatic Coercions" above) only occur when both sides have the *same* declared bit width — or when neither specifies one (both default to 64):
+**Coercion between `int` and `float` requires matching widths.** An implicit int <-> float conversion (see “Automatic coercions” above) only occurs when both sides have the *same* declared bit width — or when neither specifies one (both default to 64):
 
 ```gbn
-var float_val: float = 3.14
-var int_val: int[32] = $float_val   -- Error: coercion requires equal widths (64 vs 32)
+var float_value: float = 3.14
+var integer_value: int[32] = $float_value   -- Error: coercion requires equal widths (64 vs 32)
 
-var float32_val: float[32] = 3.14
-var int32_val: int[32] = $float32_val  -- OK: both are 32 bits
+var float32_value: float[32] = 3.14
+var integer32_value: int[32] = $float_value32  -- OK: both are 32-bit
 ```
 
-This applies equally to constants as well as function parameters and return types:
+This also applies to constants and function parameters/return types:
 
 ```gbn
 func sum(a: int[16], b: int[16]) -> int[16]
@@ -164,7 +162,7 @@ func sum(a: int[16], b: int[16]) -> int[16]
 end
 ```
 
-Element types of `array`/`dict` never track a specific bit width — `array[int]` accepts `int` values of any width mixed together, since a container does not have its own per-element type annotation. Writing `array[int[16]]` is rejected as ambiguous (it is unclear to which elements it would apply); use a plain `array[int]` instead.
+The element types of `array`/`dict` never track a specific bit width — `array[int]` accepts `int` values of mixed widths because a container has no per-element width annotation of its own. Writing `array[int[16]]` is rejected as ambiguous (it is unclear which elements it would apply to); use a plain `array[int]` instead.
 
 ### f-strings
 
@@ -182,28 +180,28 @@ $print(f"{3.14159:.2f}")   -- 3.14
 
 ### Variable Declaration
 
-The basic syntax is `var name: type = value`. The `$` sign is used to read or modify the variable after declaring it.
+The basic syntax is `var name: type = value`. The `$` prefix is used to read or modify the variable after declaring it.
 
 ```gbn
 var hp: int = 100
 $hp = 50
 ```
 
-### Size in Name (Shorthand)
+### Size in the Name (Shorthand)
 
-You can specify the maximum size directly in the variable name instead of the type annotation:
+You can specify the maximum size directly in the variable name instead of in the type annotation:
 
 ```gbn
-var buffer[128]: str = "hello"
+var buffer[128]: str = "hola"
 ```
 
 ### Multiple Types
 
-A variable can accept more than one type by separating them with commas. Use sparingly:
+A variable can accept more than one type by separating them with commas. Use this feature sparingly:
 
 ```gbn
-var data: int,str = 10
-$data = "text"
+var dato: int,str = 10
+$dato = "texto"
 ```
 
 ### Constants
@@ -214,39 +212,39 @@ Constants are declared with `const` and cannot be reassigned:
 const MAX_HP: int = 200
 ```
 
-Attempting to modify a constant produces a type error (`Immutable constant`).
+Attempting to modify a constant raises a type error (`Immutable constant`).
 
 ### `#onready`
 
-The `#onready` modifier declares a variable before the program starts executing, useful for early dependency initialization:
+The `#onready` modifier declares a variable before the program starts running, which is useful for early dependency initialization:
 
 ```gbn
 #onready var config: str[64] = "default"
 ```
 
-When used, reassignments of the same value are also prevented.
+It also prevents the same value from being reassigned when used.
 
-> `#onready` can also be placed before a function, where it caches the function's results instead — see [Cached Functions](#cached-functions-onready-func).
+> `#onready` can also be placed before a function, where it caches its results instead — see [Cached Functions](#cached-functions-onready-func).
 
 ### `#reserved`
 
-`#reserved` is used to declare script elements private, meaning they cannot be used outside the script where they were declared:
+`#reserved` declares private script elements, meaning they cannot be used outside the script in which they were declared:
 
 ```gbn
-#reserved var critical: bool = false
+#reserved var critico: bool = false
 ```
 
 ### `#public`
 
-`#public` is the counterpart to `#reserved` regarding readability. It changes nothing functionally — a variable, function, or class is already public by default — existing solely to declare that intent explicitly in code:
+`#public` is the readability counterpart to `#reserved`. It changes nothing — variables, functions, and classes are already public by default — and exists only to make that intent explicit in the code:
 
 ```gbn
-#public var health: int = 100
+#public var vida: int = 100
 ```
 
 ### `#inmutable`
 
-`#inmutable` behaves like `const` for direct assignment — `$name = value` throws the same error as a constant — but unlike a true `const`, its value **can** be changed indirectly via a [pointer](#15-pointers):
+`#inmutable` behaves like `const` for direct assignment — `$name = value` raises the same error as a constant — but unlike a true `const`, its value **can** be changed indirectly through a [pointer](#15-pointers):
 
 ```gbn
 #inmutable var x: int = 5
@@ -256,26 +254,27 @@ var p: ptr = $$x
 $p.value = 99         -- OK — x is now 99
 ```
 
-A true `const` remains completely locked down even through a pointer; `#inmutable` is the version that allows that single deliberate loophole.
+A true `const` remains completely locked even through a pointer; `#inmutable` is the version that allows this one deliberate escape hatch.
+Its value may also be changed only while its current value is `NULL`, allowing dependency values to be loaded into constants without triggering a constant-reassignment error. 
 
-### `NULL` as Empty Value
+### `NULL` as an Empty Value
 
-`NULL` represents the absence of a value. Objects and complex variables are declared with `NULL` when they do not yet hold definitive content:
+`NULL` represents the absence of a value. Objects and complex variables are declared as `NULL` when their contents have not yet been determined:
 
 ```gbn
 var name: str[32] = NULL
 var hp: int = NULL
 ```
 
-> ! The interpreter ignores objects with a `NULL` value until assigned one. In arrays and dicts, it is better to initialize with `[]` or `{}` instead of `NULL` if you plan to append elements immediately.
+> ! The interpreter ignores objects whose value is `NULL` until a value is assigned. For arrays and dictionaries, initialize with `[]` or `{}` instead of `NULL` if you plan to add elements immediately.
 
 ---
 
 ## 5. Comments
 
-### Single-line Comment
+### Line Comment
 
-Starts with `--` and extends to the end of the line:
+Starts with `--` and continues to the end of the line:
 
 ```gbn
 var x: int = 5 -- this is a comment
@@ -283,14 +282,14 @@ var x: int = 5 -- this is a comment
 
 ### Block Comment
 
-Delimited by `!*` at the start and `!*` at the end. Can span multiple lines:
+Starts with `!*` and ends with `!*`. It can span multiple lines:
 
 ```gbn
-!* This is a multi-line
-   comment !*
+!* This is a comment
+   spanning multiple lines !*
 ```
 
-> Block comments do not nest: the second `!*` closes the block opened by the first.
+> Block comments cannot be nested: the second `!*` closes the block opened by the first.
 
 ---
 
@@ -310,22 +309,22 @@ Delimited by `!*` at the start and `!*` at the end. Can span multiple lines:
 ### Comparison
 
 | Operator | Meaning |
-|----------|---------|
-| `==` | Equal |
+|----------|-------------|
+| `==` | equal |
 | `!=` | Not equal |
 | `<` | Less than |
 | `<=` | Less than or equal to |
 | `>` | Greater than |
 | `>=` | Greater than or equal to |
 
-### Logical
+### Logical Operators
 
 | Operator | Meaning |
-|----------|---------|
+|----------|-------------|
 | `and` | Logical AND |
 | `or` | Logical OR |
 | `not` | Negation |
-| `is` | Data comparation |
+| `is`| Data comparison |
 
 ### Compound Assignment
 
@@ -348,7 +347,7 @@ func name(param1: type, param2: type) -> return_type
 end
 ```
 
-The return type is mandatory. Use `NULL` if the function returns nothing:
+The return type is required. Use `NULL` if the function does not return anything:
 
 ```gbn
 func greet(name: str[32]) -> NULL
@@ -356,7 +355,7 @@ func greet(name: str[32]) -> NULL
 end
 ```
 
-### Function with Return Value
+### Function with a Return Value
 
 ```gbn
 func add(a: int, b: int) -> int
@@ -386,62 +385,62 @@ func sum(a: int[16], b: int[16]) -> int[16]
 end
 ```
 
-> ! The same width-matching rule applies to arguments: callers passing a variable declared with a different explicit bit width than the parameter must convert it explicitly first.
+> ! The same width-matching rule applies to arguments: callers passing a variable declared with a different explicit width than the parameter must convert it explicitly first.
 
 ### Cached Functions (`#onready func`)
 
-Placing `#onready` before a function caches its results: the first call with a given set of arguments runs the body, and any later call with exactly the same arguments returns the stored result without running it again.
+Placing `#onready` before a function caches its results: the first call with a given set of arguments executes the body, and later calls with exactly the same arguments return the cached result without executing it again.
 
 ```gbn
 #onready func square(n: int) -> int
-    $print("computing...")
+    $print("calculating...")
     return $n * $n
 end
 
-$print($square(4))   -- computing... / 16
+$print($square(4))   -- calculating... / 16
 $print($square(4))   -- 16 (from cache)
-$print($square(5))   -- computing... / 25
+$print($square(5))   -- calculating... / 25
 ```
 
-- Every distinct set of arguments has its own cached result.
-- On a class method, each instance keeps its own cache.
-- A cached call does not repeat the function's side effects (prints, file writes...), so it fits functions that return the same result for the same arguments.
-- Run with `--nch` to disable caching entirely for that execution.
+- Each distinct argument set has its own cached result.
+- For a class method, each instance has its own cache.
+- A cached call does not repeat the function’s side effects (printing, writing files, etc.), so this is best suited to functions that return the same result for the same arguments.
+- Run with `--nch` to disable caching entirely for that run.
 
 ### Rest Parameters (`!`)
 
-A parameter whose name starts with `!` collects the arguments it receives into an array:
+A parameter whose name begins with `!` collects the arguments it receives into an array:
 
 ```gbn
-func sum(!values[10]: int) -> int
+func sumar(!valores[10]: int) -> int
     var total: int = 0
-    for n in $values
+    for n in $valores
         $total += $n
     end
     return $total
 end
 
-$print($sum(1, 2, 3, 4))   -- 10
-$print($sum())             -- 0
+$print($sumar(1, 2, 3, 4))   -- 10
+$print($sumar())             -- 0
 ```
 
-- `[10]` (optional) sets how many values it can hold, and `: int` (optional) the type of each one — the same rules as `array[int][10]`.
-- A function can have only one `!` parameter, and it must be the last one. Any parameters before it receive their arguments first, and the `!` parameter collects the rest:
+- `[10]` (optional) defines how many values it can contain, and `: int` (optional) defines each value’s type — the same rules as `array[int][10]`.
+- A function can have only one `!` parameter, and it must be the last one. Earlier parameters receive their arguments first, and the `!` parameter collects the rest:
 
 ```gbn
-func report(title: str, !lines: str) -> NULL
-    $print($title)
-    for line in $lines
-        $print(" - " + $line)
+func reporte(titulo: str, !lineas: str) -> NULL
+    $print($titulo)
+    for linea in $lineas
+        $print(" - " + $linea)
     end
 end
 
-$report("Log", "started", "loaded", "done")
+$reporte("Log", "started", "loaded", "listo")
 ```
 
 ### Named Parameters (`?`)
 
-A parameter marked with `?` is filled by name when calling the function, written as `$name=value`:
+A parameter marked with `?` is supplied by name when calling the function, written as `$name=value`:
 
 ```gbn
 func set_modulate(?r: float, ?g: float, ?b: float, a: float) -> color
@@ -452,28 +451,28 @@ var c: color = $set_modulate(1.0, $r=0.6, $g=0.3, $b=0.9)
 ```
 
 - The `$` before the name is required.
-- Only parameters marked with `?` can be given by name; using a name that doesn't match one is an error.
-- A `?` parameter that isn't given stays `NULL`.
-- Class constructors work the same way: if `init` declares `?hp: int`, then `$Player($hp=50)` fills it.
+- Only parameters marked with `?` can be passed by name; using a name that does not match any parameter is an error.
+- A `?` parameter that is not supplied remains `NULL`.
+- Class constructors work the same way: if `init` declares `?hp: int`, then `$Player($hp=50)` supplies it.
 
 ### Named Rest Parameters (`?!`)
 
-Combining both markers makes a named parameter that collects an array. Unlike a plain `!`, a function may declare several `?!` parameters, since each one is filled by name with its own array:
+Combining both markers creates a named parameter that collects an array. Unlike a plain `!`, a function can declare multiple `?!` parameters, since each is supplied by name with its own array:
 
 ```gbn
-func groups(?!a: int, ?!b: int) -> NULL
+func grupos(?!a: int, ?!b: int) -> NULL
     $print($a)   -- [1, 2, 3]
     $print($b)   -- [4, 5]
 end
 
-$groups($a=[1, 2, 3], $b=[4, 5])
+$grupos($a=[1, 2, 3], $b=[4, 5])
 ```
 
-A plain `!` parameter can't be combined with `?!` parameters in the same function.
+A plain `!` parameter cannot be combined with `?!` parameters in the same function.
 
 ### Main Function (`init`) and `run`
 
-The `run` keyword executes the `init()` function defined in the global scope. This is the standard way to structure a program's entry point:
+The `run` keyword executes the `init()` function defined in the global scope. This is the standard way to structure a program’s entry point:
 
 ```gbn
 func init() -> NULL
@@ -483,7 +482,7 @@ end
 run
 ```
 
-> The `init()` function inside a class serves as that class's constructor and does not collide with global `init()` because they are used in different contexts.
+> The `init()` function inside a class is that class’s constructor. It does not conflict with the global `init()` because they are used in different contexts.
 
 ---
 
@@ -492,17 +491,17 @@ run
 ### Declaration
 
 ```gbn
-class ClassName
-    var field: type = NULL
+class NombreClase
+    var field: tipo = NULL
 
-    func init(self, param: type) -> NULL
+    func init(self, param: tipo) -> NULL
         $self.field = $param
     end
 
 end
 ```
 
-`self` refers to the current instance and is automatically passed as the first argument when a method is invoked. You do not pass it when instantiating:
+`self` refers to the current instance and is automatically passed as the first argument when a method is called. You do not need to pass it when instantiating:
 
 ```gbn
 var p: any = $Player("Juan")
@@ -512,7 +511,7 @@ $print($p.hp)
 
 ### Methods
 
-Methods are defined inside the class just like functions, accepting `self` as their first parameter:
+Methods are defined inside a class just like functions, with `self` as the first parameter:
 
 ```gbn
 class Player
@@ -535,7 +534,7 @@ $print($p.hp)  -- 70
 
 ### Field Access
 
-Fields are accessed using a dot (`.`) without `$`:
+Access fields with a dot (`.`), without `$`:
 
 ```gbn
 $print($p.name)
@@ -546,7 +545,7 @@ $p.hp = 50
 
 ## 9. Inheritance
 
-A class can extend another using `extends`:
+A class can extend another class using `extends`:
 
 ```gbn
 class Entity
@@ -573,7 +572,7 @@ $print($e.hp)     -- 50
 $print($e.damage) -- 10
 ```
 
-> ! If the parent class already defines an `init()` method, the child class must use `__init__()` instead to prevent name collisions. The child class inherits all fields and methods from the parent class.
+> ! If the parent class already has an `init()` method, the child class must use `__init__()` instead to avoid a name conflict. The child class inherits all fields and methods from the parent class.
 
 ---
 
@@ -588,11 +587,11 @@ var dir: int = Direction.UP
 $print($dir)  -- 0
 ```
 
-Values are automatically assigned starting from `0`. They are accessed using `EnumName.MEMBER`.
+Values are assigned automatically starting at `0`. Access them using `EnumName.MEMBER`.
 
 ### `.null`, Iteration, and `in`
 
-Every enum has an implicit `.null` member — a sentinel signifying "nothing from this enumeration has been saved yet." It is separate from declared enum members and never counted among them:
+Every enum has an implicit `.null` member — a sentinel meaning “nothing from this enumeration has been stored yet.” It is separate from the enum’s own members and is never counted as one of them:
 
 ```gbn
 enum Direction = {UP, DOWN, LEFT, RIGHT}
@@ -601,7 +600,7 @@ var current: Direction = Direction.null
 $print($current)  -- distinct from the value of any declared member
 ```
 
-An enum is directly iterable using `for ... in` and supports the `in` membership operator — both iterate strictly over declared members, never `.null`:
+An enum can be iterated directly with `for ... in` and supports the membership operator `in` — both traverse only declared members, never `.null`:
 
 ```gbn
 for d in $Direction
@@ -629,7 +628,7 @@ class Item
 
 end
 
-var sword: Item = $Item("Sword", $ItemType.WEAPON)
+var espada: Item = $Item("Sword", $ItemType.WEAPON)
 ```
 
 ---
@@ -642,13 +641,13 @@ var sword: Item = $Item("Sword", $ItemType.WEAPON)
 var numbers: array[int] = []
 ```
 
-Use `[]` to initialize an empty array. Using `NULL` without assigning elements immediately will cause an error when trying to append.
+Use `[]` to initialize an empty array. Using `NULL` and then trying to add elements without first assigning an array will cause an error.
 
 ### Array Methods
 
 | Method | Description |
 |--------|-------------|
-| `.append(value)` | Appends an element to the end |
+| `.append(value)` | Adds an element to the end |
 | `.remove(index)` | Removes the element at the given index |
 | `.size()` | Returns the number of elements |
 | `.duplicate()` | Returns a copy of the array |
@@ -665,13 +664,13 @@ $numbers[1] = 50
 $print($numbers)       -- [10, 50, 30]
 ```
 
-### Arrays with Maximum Size
+### Arrays with a Maximum Size
 
 ```gbn
 var list: array[int][10] = []
 ```
 
-This caps the array at a maximum of 10 elements.
+This limits the array to a maximum of 10 elements.
 
 ### Arrays of Objects
 
@@ -717,9 +716,9 @@ $print($inventory["weapon"].name)
 
 ---
 
-## 13. Control Structures
+## 13. Control Flow
 
-### Conditional `if / elseif / else`
+### `if / elseif / else` Conditional
 
 ```gbn
 if $x > 10
@@ -727,11 +726,11 @@ if $x > 10
 elseif $x == 10
     $print("equal")
 else
-    $print("smaller")
+    $print("less than")
 end
 ```
 
-`elif` is also accepted as a shorthand for `elseif`.
+`elif` is also accepted as a shorter form of `elseif`.
 
 ### `while` Loop
 
@@ -759,47 +758,47 @@ end
 
 ### `match` Conditional
 
-Compares a subject against several potential values. Each case opens with `case value1, value2` (multiple comma-separated labels are permitted). Only the first matching case executes (or `else`, if present); there is no fallthrough between cases.
+Compares a subject against several possible values. Each case starts with `case value1, value2` (multiple comma-separated labels are allowed). Only the first matching case is executed (or `else`, if present); cases do not fall through.
 
 ```gbn
-match $day
+match $dia
     case 1
         $print("Monday")
     case 2, 3
         $print("Tuesday or Wednesday")
     else
-        $print("Other day")
+        $print("Another day")
 end
 ```
 
-Case labels can be any evaluable expression: literals, variables, enum members (`Color.RED`), or even array/dict literals (`[1, 2, 3]`, `{"a": 1}`). If nothing matches and there is no `else`, nothing happens — no error is raised.
+Case labels can be any evaluable expression: literals, variables, enum members (`Color.RED`), or even array/dictionary literals (`[1, 2, 3]`, `{"a": 1}`). If nothing matches and there is no `else`, nothing happens — no error is raised.
 
 ### Loop Control Keywords
 
-| Keyword | Behavior |
-|---------|----------|
+| Keyword | Comportamiento |
+|---------|----------------|
 | `break` | Exits the current loop |
 | `continue` | Skips to the next iteration |
-| `loop` | Restarts the current iteration from the beginning |
-| `pass` | Does nothing (empty block placeholder) |
+| `loop` | Subtractionrts the current iteration from the beginning |
+| `pass` | Does nothing (empty-block placeholder) |
 
-`loop` is easily confused with `continue` because in a simple `while` loop they look similar, but they are not identical: `continue` advances to the *next* iteration (the next item of a `for`, or rechecks a `while` condition), whereas `loop` re-executes the *same* iteration from the start, with its state left exactly as it was — the same item in `for`, without rechecking the `while` condition — until it finishes normally.
+`loop` is easy to confuse with `continue` because they may look similar in a simple `while` loop, but they are not the same: `continue` advances to the *next* iteration (the next item in a `for`, or checks the `while` condition again), whereas `loop` reruns the *same* iteration from the beginning, with its state exactly as it was — the same `for` item, without checking the `while` condition again — until it finishes normally.
 
 ```gbn
-var attempts: int = 0
+var intentos: int = 0
 for item in [10, 20]
-    $attempts += 1
-    $print(f"trying {item}")
-    if item == 10 and $attempts < 2
+    $intentos += 1
+    $print(f"testing {item}")
+    if item == 10 and $intentos < 2
         loop  -- restarts with item still at 10, not 20
     end
 end
--- prints: trying 10 / trying 10 / trying 20
+-- prints: testing 10 / testing 10 / testing 20
 ```
 
 ### `await`
 
-Pauses execution until a condition becomes true (polls every 10ms):
+Pauses execution until a condition becomes true (polling every 10 ms):
 
 ```gbn
 await $ready == true
@@ -813,7 +812,7 @@ await $ready == true
 try
     -- code that may fail
 catch
-    -- code executed if an error occurs
+    -- code that runs if an error occurs
 end
 ```
 
@@ -821,21 +820,21 @@ end
 
 ```gbn
 try
-    var x: int = $int("not_a_number")
+    var x: int = $int("no_es_numero")
 except
     $print("A conversion error occurred")
 end
 ```
 
-Without any type, `catch`/`except` handles every error. An empty `catch`/`except` body is valid: it silences the error and does nothing else.
+Without a specified type, `catch`/`except` handles all errors. An empty `catch`/`except` body is valid: it silences the error and does nothing else.
 
 ### Catching Specific Error Types
 
-Follow `catch`/`except` with one or more error types to handle only those. Each type is written as a pointer (`$$Type`) and several are separated by commas. Any other error keeps propagating as usual:
+Write one or more error types after `catch`/`except` to handle only those types. Each type is written as a pointer (`$$Type`), and multiple types are comma-separated. Any other error continues to propagate normally:
 
 ```gbn
 try
-    var y: any = $undeclared
+    var y: any = $no_declarada
 except $$NameError
     $print("undeclared variable")
 end
@@ -847,21 +846,21 @@ except $$SyntaxError, $$ValueError
 end
 ```
 
-Catching a general type also catches the more specific ones it groups: `$$LookupError` handles both `IndexError` and `KeyError`, for example.
+Catching a general type also catches the more specific types it groups: `$$LookupError`, for example, handles both `IndexError` and `KeyError`.
 
-### Saving the Error (`-> name`)
+### Storing the Error (`-> name`)
 
-Add `-> name` at the end of the header to save the error in a variable. It holds a string with the error type, where it happened, and the message:
+Add `-> name` at the end of the header to store the error in a variable. It contains a string with the error type, where it occurred, and the message:
 
 ```gbn
 try
-    var y: any = $undeclared
+    var y: any = $no_declarada
 catch -> e
-    $print($e)   -- NameError: game.gbn:3:3: Variable not declared: undeclared
+    $print($e)   -- NameError: game.gbn:3:3: Variable not declared: no_declarada
 end
 ```
 
-It combines with types:
+This can be combined with error types:
 
 ```gbn
 except $$ValueError, $$TypeError -> e
@@ -869,25 +868,25 @@ except $$ValueError, $$TypeError -> e
 
 ### Error Types
 
-Every error shows its type at the start of the message instead of a generic `Error:`:
+Every error displays its type at the start of the message instead of a generic `Error:`:
 
 ```
 NameError: game.gbn:12:3: Variable not declared: x
 ```
 
-| Type | Raised when |
-|------|-------------|
-| `NameError` | A variable, function, or class isn't declared |
-| `TypeError` | A value has the wrong type or an operation isn't valid for it |
+| Type | Se produce cuando |
+|------|-------------------|
+| `NameError` | A variable, function, or class has not been declared |
+| `TypeError` | A value has the wrong type, or an operation is not valid for it |
 | `ValueError` | A value is not acceptable |
 | `SyntaxError` | The code is malformed (for example, a block without `end`) |
 | `IndexError` | An array index is out of range |
-| `KeyError` | A dictionary key doesn't exist |
+| `KeyError` | A dictionary key does not exist |
 | `LookupError` | Groups `IndexError` and `KeyError` |
-| `GybinError` | Groups the three language-specific errors below |
-| `EventError` | An [event](#16-events) is used incorrectly — for example, connecting something that isn't a function reference. Also handled by `$$TypeError` |
-| `PointerError` | A [pointer](#15-pointers) is used incorrectly, or doesn't match its `ptr[...]` annotation. Also handled by `$$TypeError` |
-| `BitWidthError` | A value doesn't fit an `int[N]`/`float[N]`, or a coercion mixes different widths (see [§3](#3-data-types)). Also handled by `$$ValueError` |
+| `GybinError` | Groups the three language-specific errors listed below |
+| `EventError` | An [event](#16-events) is used incorrectly — for example, connecting something that is not a function reference. It is also handled by `$$TypeError` |
+| `PointerError` | A [pointer](#15-pointers) is used incorrectly or does not match its `ptr[...]` annotation. It is also handled by `$$TypeError` |
+| `BitWidthError` | A value does not fit in an `int[N]`/`float[N]`, or a coercion mixes different widths (see [§3](#3-data-types)). It is also handled by `$$ValueError` |
 
 ```gbn
 try
@@ -899,7 +898,7 @@ end
 try
     $player_is_dead.connect(5)
 except $$GybinError -> e
-    $print("event, pointer or bit width problem: " + $e)
+    $print("event, pointer, or bit-width problem: " + $e)
 end
 ```
 
@@ -907,28 +906,28 @@ end
 
 ## 15. Pointers
 
-The `$$` operator creates a pointer to an existing variable, constant, function, class, or event (e.g., `$$hp`, `$$Damage`, `$$self.hp`, `$$arr[0]`, `$$player_is_dead`). It is typed using `ptr` — the only type annotation that can hold a pointer value:
+The `$$` operator creates a pointer to an existing variable, constant, function, class, or event (e.g. `$$hp`, `$$Damage`, `$$self.hp`, `$$arr[0]`, `$$player_is_dead`). It is typed with `ptr` — the only annotation that can hold a pointer value:
 
 ```gbn
 var hp: int = 100
 var ref: ptr = $$hp
 ```
 
-> ! Reading a pointer variable directly (`$print(ref)`) prints the pointer itself, not the value it references — use `.value` or `.get()` to read through it.
+> ! Reading a pointer variable directly (`$print(ref)`) prints the pointer itself, not the value it points to — use `.value` or `.get()` to read through it.
 
 ### Pointer Methods and Properties
 
-A pointer never carries a copy of what it points to — it resolves the target fresh every time one of these is accessed:
+A pointer never stores a copy of its target — it resolves the target again each time one of these members is used:
 
 | Member | Description |
-|--------|-------------|
-| `.value` | Gets the current value of the referenced variable/constant. Can also be assigned (`$ref.value = 75`) to write through the pointer |
+|---------|-------------|
+| `.value` | Gets the current value of the referenced variable/constant. It can also be assigned (`$ref.value = 75`) to write through the pointer |
 | `.get()` | Same as `.value`, as a method call |
 | `.set(value)` | Same as assigning `.value`, as a method call |
-| `.call(args...)` | Invokes the referenced function/class, forwarding given arguments |
-| `.name` | The name of the referenced memory space |
-| `.is_callable` | `true` if the pointer references a function or class, `false` for a variable/constant |
-| `.is_mutable` | `true` only for a non-`#reserved` and non-constant variable |
+| `.call(args...)` | Invokes the referenced function/class, forwarding the supplied arguments |
+| `.name` | The name of the referenced memory slot |
+| `.is_callable` | `true` if the pointer refers to a function or class, `false` for a variable/constant |
+| `.is_mutable` | `true` only for a variable that is neither `#reserved` nor a constant |
 | `.size` | Approximate size in bytes of the referenced value |
 | `.ref` | The actual memory address (identity) of the referenced value |
 
@@ -950,32 +949,32 @@ $fp.call("Carlos")   -- Hello Carlos
 
 ### Rules
 
-- Only variables can be modified through a pointer. Constants are always immutable, and functions/classes cannot be assigned values — `.set()`/`.value = ...` throws an error in either case.
-- A variable declared with `#reserved` can never be mutated through a pointer, even by code holding a reference to it.
-- Writing through a pointer (`.set()`/`.value = ...`) accepts any value type; a mismatch against the target's declared type triggers a warning (with `--w`) instead of a strict type error.
-- Referencing a function or class purely by name (without `$$`) is a script error — `$$name` is the sole way to obtain a reference to one without invoking it.
+- Only variables can be changed through a pointer. Constants are always immutable, and functions/classes cannot be assigned a value — `.set()`/`.value = ...` raises an error in either case.
+- A variable declared with `#reserved` can never be mutated through a pointer, even by code that has a reference to it.
+- Writing through a pointer (`.set()`/`.value = ...`) accepts any value type; a mismatch with the target’s declared type produces a warning (with `--w`) rather than a strict type error.
+- Referencing a function or class by its bare name (without `$$`) is a script error — `$$name` is the only way to obtain a reference without invoking it.
 
-Pointers enable indirect access and can target complex paths (`$$object.field`, `$$array[0]`). They are useful for aliasing, dynamic references, and passing function references (for instance, when attaching handlers to an [event](#16-events)).
+Pointers allow indirect access and can target complex paths (`$$object.field`, `$$array[0]`). They are useful for aliases, dynamic references, and passing references to functions (for example, when connecting handlers to an [event](#16-events)).
 
-### Typed Pointers: `ptr[kinds][types]`
+### Typed Pointers: `ptr[target][data]`
 
-A plain `ptr` accepts a pointer to anything. Two optional brackets narrow it down:
+A plain `ptr` accepts a pointer to anything. Two optional bracket groups can constrain it:
 
-- **First bracket — what it can point to:** `var`, `const`, `event`, `func`, `class` (separate several with commas).
-- **Second bracket — the data type it must hold:** `int`, `str`, a class name, etc. (separate several with commas).
+- **First bracket — what it can point to:** `var`, `const`, `event`, `func`, `class` (separate multiple options with commas).
+- **Second bracket — the data type it must contain:** `int`, `str`, a class name, etc. (separate multiple options with commas).
 
-An empty bracket, or `any` inside it, means no restriction on that part.
+An empty bracket pair, or one containing `any`, means that part is unrestricted.
 
 ```gbn
-var p1: ptr[func] = $$greet                 -- only functions
-var p2: ptr[var,const][int,float] = $$hp     -- a variable or constant holding an int or float
-var p3: ptr[var][Fighter] = $$hero           -- a variable holding a Fighter instance
-var p4: ptr[event] = $$player_is_dead        -- only events
-var p5: ptr[] = $$hp                          -- same as a plain ptr
-var p6: ptr[any][any] = $$hp                  -- same as a plain ptr
+var p1: ptr[func] = $$greet                -- functions only
+var p2: ptr[var,const][int,float] = $$hp      -- a variable or constant containing an int or float
+var p3: ptr[var][Fighter] = $$hero           -- a variable containing a Fighter instance
+var p4: ptr[event] = $$player_is_dead         -- events only
+var p5: ptr[] = $$hp                           -- same as a plain ptr
+var p6: ptr[any][any] = $$hp                   -- same as a plain ptr
 ```
 
-For classes, the second bracket says which class (or classes) it accepts: the named class itself or any class that extends it.
+For classes, the second bracket pair indicates which class or classes are accepted: the named class or any class that extends it.
 
 ```gbn
 class Fighter
@@ -995,9 +994,9 @@ var b: ptr[class][Fighter,Enemy] = $$Enemy      -- OK
 var c: ptr[class][Fighter] = $$Enemy            -- PointerError
 ```
 
-A pointer that doesn't match its annotation raises a `PointerError` (see [§14](#14-error-handling)).
+A pointer that does not match its annotation raises a `PointerError` (see [§14](#14-error-handling)).
 
-### Raw Address Pointers
+### Pointers to Raw Addresses
 
 A `ptr` can also be constructed from a raw integer address instead of `$$target`:
 
@@ -1005,7 +1004,7 @@ A `ptr` can also be constructed from a raw integer address instead of `$$target`
 var memory: ptr = 0x7fff5fbff80c
 ```
 
-> ! This does **not** dereference actual process memory — doing so safely from an AST-walking interpreter is impossible (there is no way to know if a given address is even valid, and attempting to do so risks crashing the process or reading unowned memory). What you obtain instead is an opaque handle storing the address as pure identity:
+> ! This does **not** dereference actual process memory — doing so safely from an interpreter that walks a syntax tree is not possible (there is no way to know whether a given address is valid, and attempting it could crash the process or read memory that does not belong to you). Instead, you get an opaque handle that carries the address purely as an identity:
 
 ```gbn
 $print($memory.ref)          -- the address itself
@@ -1015,35 +1014,35 @@ $print($memory.is_mutable)   -- false
 $print($memory.size)         -- native pointer size (8 bytes)
 
 $print($memory.value)        -- error: nothing to dereference
-$memory.value = 5             -- error: nowhere to write
+$memory.value = 5             -- error: nowhere to write to
 $memory.call()                -- error: nothing to call
 ```
 
-Same object, same member surface as a standard pointer — `.value`, `.set()`, and `.call()` simply have nothing to act on, and state so clearly rather than guessing.
+Same object, same member interface as a normal pointer — `.value`, `.set()`, and `.call()` simply have nothing to act on, and report that clearly instead of guessing.
 
 ---
 
 ## 16. Events
 
-An `event` declares a lightweight signal: a name plus a parameter list:
+An `event` declares a lightweight signal: a name plus a list of parameters:
 
 ```gbn
 event player_is_dead(entity: str)
 ```
 
-Type annotations on parameters serve strictly as documentation — an event has no body against which to validate them.
+Type annotations on parameters are documentation only — an event has no body against which to validate them.
 
 ### Methods
 
-Every event exposes the following, all used with the `$` prefix like any other call:
+Every event exposes the following members, all used with the `$` prefix like any other call:
 
 | Member | Description |
-|--------|-------------|
-| `.connect(handler)` | Registers a function to execute whenever the event fires. `handler` must be a pointer to a function created with `$$function_name`; the bare name, or a pointer to anything else (a variable, class, event...), causes an `EventError` |
-| `.disconnect(handler)` | Removes that handler from the event. Does nothing if it wasn't connected |
-| `.reconnect(handler)` | Disconnects and connects the handler again, so it ends up connected exactly once — useful to avoid running it twice on each `.emit()` |
-| `.emit(args...)` | Calls each connected handler in the order they were attached, forwarding provided arguments. Argument count must match the parameter count declared by the event |
-| `.last_connection` | Property (no parentheses): a pointer to the most recently connected handler, or `NULL` if none is connected |
+|---------|-------------|
+| `.connect(handler)` | Registers a function to run every time the event is emitted. `handler` must be a pointer to a function created with `$$function_name`; a bare name or a pointer to anything else (a variable, class, event, etc.) raises an `EventError` |
+| `.disconnect(handler)` | Removes that handler from the event. Does nothing if it was not connected |
+| `.reconnect(handler)` | Disconnects and reconnects the handler so it is connected exactly once — useful for preventing it from running twice on each `.emit()` |
+| `.emit(args...)` | Calls each connected handler in connection order, forwarding the supplied arguments. The number of arguments must match the number of parameters declared by the event |
+| `.last_connection` | Property (no parentheses): a pointer to the most recently connected handler, or `NULL` if none are connected |
 
 ```gbn
 event player_is_dead(entity: str)
@@ -1054,14 +1053,14 @@ end
 
 $player_is_dead.connect($$on_player_dead)
 
-if $health <= 0
+if $vida <= 0
     $player_is_dead.emit("Zombie")
 end
 ```
 
-Multiple handlers can be connected to the same event; all will execute in the order attached when `.emit(...)` is called.
+Multiple handlers can be connected to the same event; all are executed, in connection order, when `.emit(...)` is called.
 
-`.disconnect(...)` takes any pointer to the same function, so you don't need to keep the one used to connect:
+`.disconnect(...)` accepts any pointer to the same function, so you do not need to save the one used to connect it:
 
 ```gbn
 $player_is_dead.disconnect($$on_player_dead)
@@ -1069,15 +1068,15 @@ $player_is_dead.disconnect($$on_player_dead)
 
 ```gbn
 $player_is_dead.connect($$on_player_dead)
-$player_is_dead.connect($$on_player_dead)     -- connected twice: runs twice per emit
-$player_is_dead.reconnect($$on_player_dead)   -- now connected exactly once
+$player_is_dead.connect($$on_player_dead)     -- conectado dos veces: se ejecuta dos veces por emit
+$player_is_dead.reconnect($$on_player_dead)   -- ahora está conectado exactamente una vez
 
 $print($player_is_dead.last_connection.name)  -- on_player_dead
 ```
 
 ### Events as Conditions
 
-An event can be used directly as a condition: it is `false` until the first time it is emitted and `true` from then on.
+An event can be used directly as a condition: it is `false` until it is emitted for the first time, and `true` thereafter.
 
 ```gbn
 event level_loaded(name: str)
@@ -1090,7 +1089,7 @@ func init() -> NULL
     $level_loaded.emit("Forest")
 
     if $level_loaded
-        $print("printed: the event has been emitted")
+        $print("printed: the event has already been emitted")
     end
 end
 ```
@@ -1101,14 +1100,14 @@ end
 
 ### `@use` — Importing a Module
 
-Loads a `.gbn` file (or other supported format) and exposes all its symbols in the current scope:
+Loads a `.gbn` file (or another supported format) and exposes all its symbols in the current scope:
 
 ```gbn
 @use "utils.gbn"
-@use "helpers"        -- detects extension automatically
+@use "helpers"        -- detects the extension automatically
 ```
 
-Importing is idempotent: if a module was already loaded, it is not re-executed.
+Importing is idempotent: if a module has already been loaded, it is not executed again.
 
 ### Importing Multiple Modules at Once
 
@@ -1116,27 +1115,27 @@ Importing is idempotent: if a module was already loaded, it is not re-executed.
 @use math, random, sys
 ```
 
-Each loads independently, exactly as if on its own `@use` line. `@as` is not allowed on `@use` with multiple modules — a single alias cannot represent multiple distinct modules — import them one per line if each requires its own name:
+Each module is loaded independently, exactly as if it had its own `@use` line. `@as` is not allowed in an `@use` statement containing multiple modules — one alias cannot represent several different modules — import them one per line if each needs its own name:
 
 ```gbn
-@use math @as math_lib
-@use random @as rand_lib
+@use math @as mate
+@use random @as rand
 ```
 
-### `@from` / `@as` — Importing with Aliases
+### `@from` / `@as` — Importing with an Alias
 
-Loads a module and exposes it under a named namespace:
+Loads a module and exposes it as a named namespace:
 
 ```gbn
 @from "utils.gbn" @as utils
-$print($utils.my_function())
+$print($utils.mi_funcion())
 ```
 
-`@use path @as alias` (single module) accomplishes the exact same thing — identical functionality reached via either keyword.
+`@use path @as alias` (a single module) does exactly the same thing — the same functionality is available through either keyword.
 
 ### Selective Imports (`@from ... @use`)
 
-Loading an entire module to use only one or two functions wastes memory on everything else defined within it, and can fill `--w` output with warnings about symbols the importer never requested. `@from module @use $$symbol` loads only named symbols instead of executing the whole module and pulling in everything it exposes:
+Loading an entire module just to use one or two functions wastes memory on everything else it defines and can fill `--w` output with warnings about symbols the importer never requested. `@from module @use $$symbol` loads only the named symbols instead of executing the whole module and importing everything it exposes:
 
 ```gbn
 @from math @use $$_sqrt
@@ -1149,7 +1148,7 @@ Multiple symbols from the same module, separated by commas:
 @from math @use $$_PI, $$_E, $$_sqrt
 ```
 
-Add `@as` to group selected symbols under a single namespace rather than dumping them directly into current scope — permitted here (unlike multi-module `@use` above) because everything still originates from a single module:
+Add `@as` to group the selected symbols under a single namespace instead of placing them directly in the current scope — this is allowed here (unlike the multiple-module `@use` case above) because everything still comes from a single module:
 
 ```gbn
 @from sys @use $$_format_time, $$_miliseconds @as os
@@ -1161,36 +1160,36 @@ $print($os._format_time())
 ### Supported Formats
 
 | Extension | Behavior |
-|-----------|----------|
+|-----------|----------------|
 | `.gbn` | Executed and integrated into the current scope |
-| `.py` | Loaded as a Python module; public attributes exposed |
-| `.c`, `.cpp`, `.asm`, `.sh`, `.bash`, `.h` | Source code exposed as a dictionary under `__source__` |
+| `.py` | Loaded as a Python module; its public attributes are exposed |
+| `.c`, `.cpp`, `.asm`, `.sh`, `.bash`, `.h` | Source code is exposed as a dictionary under `__source__` |
 
 ### Automatic Module Search
 
-If the path contains no `/` and does not start with `.`, the interpreter also searches in the project's `libs/` directory.
+If the path contains no `/` and does not start with `.`, the interpreter also searches the project’s `libs/` folder.
 
 ---
 
 ## 18. Memory Management
 
-The interpreter features a configurable default limit of **1024 memory slots**.
+The interpreter has a configurable default limit of **1024 memory slots**.
 
-### `free` — Freeing a data space
+### `free` — Freeing a Memory Slot
 
-Explicitly removes a variable from scope:
-
-```gbn
-$free($$my_data) 
-```
-
-`free` accepts one or several pointers of any kind (variables, constants, functions, classes, events), separated by commas:
+Explicitly removes a variable from the scope:
 
 ```gbn
-$free($$first, $$second, $$third)
+$free($$mi_dato) 
 ```
 
-### `expand_memory` — Expanding the Limit
+`free` accepts one or more pointers of any type (variables, constants, functions, classes, events), separated by commas:
+
+```gbn
+$free($$primero, $$segundo, $$tercero)
+```
+
+### `expand_memory` — Increasing the Limit
 
 Increases the maximum number of available slots:
 
@@ -1198,7 +1197,7 @@ Increases the maximum number of available slots:
 $expand_memory(512)
 ```
 
-> ! This outputs a warning to `stderr` indicating the change.
+> ! This emits a warning to `stderr` indicating the change.
 
 ### `breakpoint` — Pausing Execution
 
@@ -1208,38 +1207,38 @@ Pauses execution and returns a memory summary:
 $breakpoint()
 ```
 
-### Expression Caching
+### Expression Cache
 
-Expressions appearing repeatedly (e.g., inside a loop) are cached as AST upon first parse, avoiding redundant re-parsing during each iteration:
+Expressions that appear repeatedly (for example, inside a loop) are cached as an AST the first time they are parsed, avoiding unnecessary reparsing on each cycle:
 
 ```gbn
 var i: int = 0
 while $i < 10000
-    var x = ($i * 5) + (20 / 2)  -- expression is cached
+    var x = ($i * 5) + (20 / 2)  -- the expression is cached
     $i += 1
 end
 ```
 
-### Caching and `--nch`
+### Cache and `--nch`
 
-Two features store results to save work on repeated use:
+Two features cache results to save work on repeated use:
 
-- **`#onready func`** remembers a function's result for each distinct set of arguments (see [§7](#cached-functions-onready-func)).
-- **`$preload(path)`** reads a file once and remembers its content (see [§19](#19-native-functions-built-ins)).
+- **`#onready func`** caches a function result for each distinct set of arguments (see [§7](#7-functions)).
+- **`$preload(path)`** reads a file once and caches its contents (see [§19](#19-built-in-functions)).
 
-Run with `--nch` to turn both off for that execution: cached functions always run their body, and `$preload` always reads from disk.
+Run with `--nch` to disable both for that run: cached functions always execute their bodies, and `$preload` always reads from disk.
 
 ```bash
-Gybin my_script.gbn --nch
+Gybin mi_script.gbn --nch
 ```
 
-### Post-execution Garbage Collector
+### Post-Execution Garbage Collector
 
-Upon program completion, the engine automatically frees global symbols defined but never read (global variables, functions, classes, imported namespaces). `$free($var)` can also be used manually if needed.
+When execution ends, the engine automatically frees global symbols that were defined but never read (global variables, functions, classes, imported namespaces). `$free($var)` can also be used when needed.
 
 ### `--sm` — Memory Summary
 
-When using the `--sm` flag, the interpreter prints full memory status on termination:
+When the `--sm` flag is used, the interpreter prints the full memory state at the end:
 
 ```
 Total memory: hp:int=100 | name:str='Juan' | ...
@@ -1247,30 +1246,32 @@ Total memory: hp:int=100 | name:str='Juan' | ...
 
 ---
 
-## 19. Native Functions (built-ins)
+## 19. Built-in Functions
 
 These functions are available without importing anything:
 
 | Function | Description |
-|----------|-------------|
+|---------|-------------|
 | `$print(value)` | Prints a value |
 | `$reprint(value)` | Like `$print`, but overwrites the current line instead of starting a new one — see below |
-| `$int(value)` | Converts to integer |
-| `$float(value)` | Converts to float |
-| `$str(value)` | Converts to string |
-| `$bool(value)` | Converts to boolean |
+| `$int(value)` | Converts to an integer |
+| `$float(value)` | Converts to a float |
+| `$str(value)` | Converts to a string |
+| `$bool(value)` | Converts to a boolean |
 | `$range(n)` | Generates a range from 0 to n-1 |
-| `$len(collection)` | Returns collection length |
+| `$len(coleccion)` | Returns the length of a collection |
 | `$file_read(path)` | Reads an entire file as a string |
 | `$file_lines(path)` | Reads a file as an array of lines |
 | `$file_write(path, content)` | Writes (overwrites) a file |
-| `$file_append(path, content)` | Appends content to the end of a file |
+| `$file_append(path, content)` | Appends content to a file |
 | `$file_exists(path)` | Returns `true` if the file exists |
-| `$preload(path)` | Reads a file like `$file_read`, but remembers its content — see below |
+| `$preload(path)` | Reads a file like `$file_read`, but caches its contents — see below |
+| `$eval()` | Executes expressions provided as strings |
+| `$exit()` | Immediately terminates the program |
 
-### Named Arguments in `$print`
+### Named Arguments for `$print`
 
-`$print` accepts `sep`, `end`, and `flush` by name:
+`$print` accepts `sep`, `end`, and `flush` as named arguments:
 
 ```gbn
 $print("a", "b", sep="-", end="")   -- a-b, no trailing newline
@@ -1279,37 +1280,33 @@ $print("c")
 
 ### `$preload` — Reading a File Once
 
-`$preload(path)` returns the whole content of a file as a string, just like `$file_read(path)`. The difference is that it remembers the result for that path: later calls with the same path return the stored content instantly without touching the disk again, even if the file changed in the meantime.
+`$preload(path)` returns the full contents of a file as a string, just like `$file_read(path)`. The difference is that it caches the result for that path: later calls with the same path return the cached contents immediately without accessing the disk again, even if the file has changed in the meantime.
 
 ```gbn
 var config: str = $preload("config.txt")   -- reads the file
-var again: str = $preload("config.txt")    -- returns the stored content
+var again: str = $preload("config.txt") -- returns the cached contents
 ```
 
-Run with `--nch` to make every `$preload` read from disk.
+Run with `--nch` to make each `$preload` read from disk.
 
 ### `$reprint` — Updating a Line in Place
 
-Status and progress outputs typically need to overwrite the same terminal line rather than pushing down a new line on every call. `$reprint` achieves this without requiring manual `
-` and ANSI clear sequence handling:
+Status/progress output often needs to overwrite the same terminal line instead of moving to a new line on every call. `$reprint` does this without having to manually write `\r` and an ANSI clearing sequence:
 
 ```gbn
-$reprint("loading 10%")
-$reprint("loading 100%")
-$reprint("done!", end="
-")   -- pass end="
-" to close the line and return to normal $print
-$print("after")
+$reprint("cargando 10%")
+$reprint("cargando 100%")
+$reprint("ready!", end="\n")   -- pass end="\n" to close the line and return to normal $print behavior
+$print("afterward")
 ```
 
-By default, it adds no trailing newline (so subsequent calls overwrite) and flushes immediately. Passing `end="
-"` makes it behave identically to `$print`.
+By default, it does not add a newline (so the next call continues overwriting the same line) and flushes immediately. With `end="\n"`, it behaves exactly like `$print`, so it is safe to use generally.
 
 ---
 
-## 20. Standard Library (stdutils)
+## 20. Standard Library (`stdutils`)
 
-`stdutils.gbn` is automatically loaded at startup for every program. It provides:
+`stdutils.gbn` is loaded automatically at the start of every program. It provides:
 
 ### Version Constant
 
@@ -1321,41 +1318,89 @@ $print($GBN.VERSION)
 
 | Function | Description |
 |---------|-------------|
-| `$contains(collection, element)` | `true` if element exists in collection |
-| `$index_of(collection, element)` | Index of element, or `-1` if missing |
-| `$has_key(dict, key)` | `true` if key exists in dictionary |
-| `$merge_dict(dest, source)` | Merges `source` into `dest` and returns result |
+| `$contains(collection, element)` | `true` if the element is in the collection |
+| `$index_of(collection, element)` | Index of the element, or `-1` if it does not exist |
+| `$has_key(dict, key)` | `true` if the key exists in the dictionary |
+| `$merge_dict(dest, origen)` | Merges `origen` into `dest` and returns the result |
+| `$flatten(colecciones)` | Merges one or more collections into a single collection |
+| `$unique(coleccion)` | Removes duplicate elements |
+| `$reverse(coleccion)` | Returns the elements of a collection in reverse order |
 
 ### String Functions
 
 | Function | Description |
 |---------|-------------|
-| `$str_split(text, delimiter)` | Splits string into an array |
+| `$str_split(text, delimiter)` | Splits a string into an array |
 | `$str_join(separator, items)` | Joins an array of strings into one |
-| `$to_lower(text)` | Converts string to lowercase |
-| `$to_upper(text)` | Converts string to uppercase |
-| `$starts_with(text, prefix)` | `true` if text starts with prefix |
-| `$ends_with(text, suffix)` | `true` if text ends with suffix |
+| `$to_lower(texto)` | Converts to lowercase |
+| `$to_upper(texto)` | Converts to uppercase |
+| `$starts_with(texto, prefijo)` | `true` if the text starts with the prefix |
+| `$ends_with(texto, sufijo)` | `true` if the text ends with the suffix |
+| `$repeat(texto, rango)` | Repeats a string `n` times |
+| `$trim(texto)` | Trims whitespace from a string |
+| `$replace(texto, viejo, nuevo)` | Replaces occurrences in a string with another string |
 
-### Vector Classes
+### Vector Types
 
 | Function | Description |
 |---------|-------------|
-| `$vec2(x, y)` | Vector of 2 float values |
-| `$vec2i(x, y)` | Vector of 2 int values |
-| `$vec3(x, y, z)` | Vector of 3 float values |
-| `$vec3i(x, y, z)` | Vector of 3 int values |
-| `$color(r, g, b, a)` | Vector of 4 float values (0 to 1 range), where `a` defaults to 1 if unassigned |
+| `$vec2(x, y)` | 2D vector of floating-point values |
+| `$vec2i(x, y)` | 2D vector of integer values |
+| `$vec3(x, y, z)` | 3D vector of floating-point values |
+| `$vec3i(x, y, z)` | 3D vector of integer values |
+| `$color(r, g, b, a)` | 4D vector of floating-point values, ranging from 0 to 1; `a` defaults to 1 if no value is assigned |
 
-> You can access vector components at any time via `.x, .y, .z` or `.r, .g, .b, .a`.
+> You can access vector values at any time through `.x, .y, .z` or `.r, .g, .b, .a`
+> All vectors provide the `.zero()` function
 
-### Value Clamping
+The `$color()` vector accepts an optional named `$preset=` argument to select a named color from an enum instead of providing arguments for every RGBA channel
 
-The first argument of `$max()` or `$min()` is the target value, and the second is the boundary. If the target exceeds the boundary limit, the boundary value is automatically returned:
+| Color | Equivalencia |
+|-------|--------------|
+| `$Color.YELLOW` | `$color(1.0, 1.0, 0.0, 1.0)` |
+| `$Color.BLUE` | `$color(0.0, 0.0, 1.0, 1.0)` |
+| `$Color.RED` | `$color(1.0, 0.0, 0.0, 1.0)` |
+| `$Color.GREEN` | `$color(0.0, 1.0, 0.0, 1.0)` |
+| `$Color.VIOLET` | `$color(0.93333334, 0.50980395, 0.93333334, 1.0)` |
+| `$Color.PURPLE` | `$color(0.627451, 0.1254902, 0.9411765, 1.0)` |
+| `$Color.MAGENTA` | `$color(1.0, 0.0, 1.0, 1.0)` |
+| `$Color.PINk` | `$color(1.0, 0.7529412, 0.79607844, 1.0)` |
+| `$Color.SKYBLUE` | `$color(0.5294118, 0.80784315, 0.92156863, 1.0)` |
+| `$Color.BLACK` | `$color(0.0, 0.0, 0.0, 1.0)` |
+| `$Color.WHITE` | `$color(1.0, 1.0, 1.0, 1.0)` |
+| `$Color.GRAY` | `$color(0.74509805, 0.74509805, 0.74509805, 1.0)` |
+| `$Color.ORANGE` | `$color(1.0, 0.64705884, 0.0, 1.0)` |
+| `$Color.LIME` | `$color(0.0, 1.0, 0.0, 1.0)` |
+
+### Data
+
+| Function | Description |
+|---------|-------------|
+| `$is_array(value)` | `true` if it is a collection |
+| `$is_dict(value)` | `true` if it is a dictionary |
+| `$is_ptr(value)` | `true` if it is a pointer |
+| `$type(value)` | Returns the class of the argument’s data type |
+| `$type_of(value)` | Like `$type`, but returns an enum value to make comparisons easier |
+
+The `Type` enum contains data types used by `$type_of` for comparisons:
+
+| Type | Equivalent value |
+|------|--------------|
+| `$Type.STRING` | 0 |
+| `$Type.INT` | 1 |
+| `$Type.FLOAT` | 2 |
+| `$Type.BOOL` | 3 |
+| `$Type.POINTER` | 4 |
+| `$Type.OBJECT` | 5 |
+| `$Type.null` | -1 (the default for any enum) |
+
+### Clamping Values
+
+The first argument of `$max()` or `$min()` is the value to clamp, and the second is the limit. If the value exceeds the limit, the limit is returned automatically
 
 ```gbn
-var min_val: int = $min(25, 12) -- Minimum possible value is 12
-var max_val: int = $max(72, 100) -- Maximum possible value is 100
+var min_value: int = $min(25, 12) -- The minimum possible value is 12
+var max_value: int = $max(72, 100) -- The maximum possible value is 100
 ```
 
 ### User Input
@@ -1364,79 +1409,79 @@ var max_val: int = $max(72, 100) -- Maximum possible value is 100
 var name: str[64] = $input("What is your name? ")
 ```
 
-### Pause for Input
+### Input Pause
 
 ```gbn
-$pause() -- Code execution stops here until key press
+$pause() -- Execution pauses here
 ```
 
 ---
 
-## 21. Compilation to Executable
+## 21. Compiling to an Executable
 
-`--c`/`--fc` generate a standalone executable using PyInstaller. **Neither flag executes your script for display** — the only output printed is the path of the resulting executable or a message explaining why compilation was skipped.
+`--c`/`--fc` generate a standalone executable with PyInstaller. **Neither flag runs your script for you to see its output** — the only output is the resulting executable’s path or a message explaining why compilation was skipped.
 
 ```bash
-Gybin my_script.gbn --c
+Gybin mi_script.gbn --c
 ```
 
-The interpreter lacks a dedicated "syntax-check only" mode — it is an AST-walking engine, meaning error checking and script execution are technically the same operation. `--c` still verifies script validity, running it once internally with all output (stdout/stderr) completely muted — none of its output or side effects leak. `--fc` skips even that: it never touches script execution and compiles unconditionally.
+The interpreter has no separate “syntax-check only” mode — it directly walks the syntax tree, so “checking for errors” and “running the script” are technically the same operation. `--c` still needs to know whether the script fails, so it runs it internally once with all output (stdout/stderr) completely silenced — nothing it prints or does is shown, and its effects do not leak into anything printed afterward. `--fc` skips even that: it never touches the script and compiles unconditionally.
 
-| Flag | Executes Script? | Compiles on Error? |
-|------|-------------------|--------------------|
-| `--c` | Completely muted (error checking only) | No - prints `Compilation skipped...` and exits |
+| Flag | Does it run the script? | Does it compile if there is an error? |
+|------|----------------------|--------------------------|
+| `--c` | Completely silenced (error checking only) | No — prints `Compilation skipped...` and exits |
 | `--fc` | Never | Yes, always |
 
 ### `--n`, `--ad`, `--i`
 
 ```bash
-Gybin game.gbn --c --n MyGame --ad assets/config.json --i icon.ico
+Gybin juego.gbn --c --n MiJuego --ad assets/config.json --i icono.ico
 ```
 
-- `--n NAME` — custom name for compiled executable (defaults to script filename without extension).
-- `--ad PATH[=DEST]` — packages an extra file/folder into executable. Can be repeated. `DEST` is target destination folder inside package (defaults to `.`).
-- `--i ICON_PATH` — executable icon (`.ico` on Windows, `.icns` on macOS).
+- `--n NAME` — custom name for the compiled executable (default: the script’s filename without its extension).
+- `--ad PATH[=DESTINATION]` — bundles an extra file or folder into the executable. Can be repeated. `DESTINO` is the destination folder inside the bundle (default: `.`).
+- `--i ICON_PATH` — icon for the executable (`.ico` on Windows, `.icns` on macOS).
 
-### Automatic Import Packaging
+### Automatic Import Bundling
 
-Every file imported via `@use` or `@from ... @as` — at any depth level (including transitive imports) and of any supported extension — is automatically detected and embedded in the binary. The compiled program becomes completely self-contained, requiring no original `.gbn` files to run.
+Every file brought in with `@use` or `@from ... @as` — at any depth (including transitive imports) and with any supported extension — is detected automatically and embedded in the executable. The compiled program is fully self-contained: it does not need the original `.gbn` files to run.
 
-`stdutils.gbn` is also embedded directly inside the binary and is never copied alongside as an external file — this is intentional: as it auto-loads on every execution, an editable external copy would pose a code injection security risk for a compiled binary.
+`stdutils.gbn` is also embedded in the executable and is never copied alongside it as an external file. This is intentional: since it loads automatically on every run, an editable external copy would pose a code-injection risk for a compiled binary.
 
-If PyInstaller is unavailable, a bash wrapper (`.bat` on Windows) is generated instead:
+If PyInstaller is unavailable, a Bash wrapper (`.bat` on Windows) is generated to invoke the interpreter directly:
 
 ```bash
 #!/usr/bin/env bash
-exec Gybin "my_script.gbn" "$@"
+exec Gybin "mi_script.gbn" "$@"
 ```
 
-> ! A script whose own filename contains `:` compiles fine as an entry point. However, imported files containing `:` in their filename cannot be bundled, as PyInstaller's `--add-data` uses `:` as a SOURCE/DEST separator. You will receive a clear warning during compilation if this occurs, and only that file will be skipped rather than failing the entire compilation process.
+> ! A script whose own filename contains `:` can still be compiled as the entry point. However, a file *imported* by that script whose filename contains `:` cannot be bundled — PyInstaller’s `--add-data` uses `:` as the SOURCE/DEST separator. You will receive a clear warning during compilation, and only that file will be skipped instead of failing the entire build.
 
 ---
 
 ## 22. Warnings and Static Analysis
 
-When executing with `--w`, the engine activates post-execution static analysis reporting:
+When run with `--w`, the engine performs post-execution analysis and reports:
 
-- **Declared variables that are never read**
-- **Defined functions that are never called**
-- **Functions with empty bodies**
-- **Defined classes that are never instantiated**
-- **Classes with empty bodies**
-- **Defined enums that are never used**
-- **Multi-type variables with more than 3 distinct types assigned**
-- **Suspicious assignments** (declared type differs from actual value type)
-- **Potential memory leaks**: global containers holding over 256 unread elements
+- **Variables declared but never read**
+- **Functions defined but never called**
+- **Functions with an empty body**
+- **Classes defined but never instantiated**
+- **Classes with an empty body**
+- **Enums defined but never used**
+- **Multi-type variables used with more than 3 distinct types**
+- **Suspicious assignments** (declared type differs from the value’s actual type)
+- **Possible memory leaks**: global containers with more than 256 elements that are never read
 
-Warnings output to `stderr` following this format:
+Warnings are printed to `stderr` in the following format:
 
 ```
 Warning: file.gbn:42: Variable 'x' is declared but never read
 ```
 
-> Variables prefixed with `_` are ignored by the static analyzer (by convention representing intentionally unused items).
+> Variables whose names start with `_` are ignored by the analyzer (the convention for “intentionally unused”).
 
-> Warnings may occasionally flag code you did not write if it belongs to unused routines within imported libraries.
+> You may receive warnings about code you never wrote; these may refer to unused code in imported libraries. 
 
 ---
 
@@ -1444,57 +1489,57 @@ Warning: file.gbn:42: Variable 'x' is declared but never read
 
 ### The `$` Operator
 
-`$` is **mandatory** for:
-- Reading variable values: `$hp`
-- Calling functions: `$print(...)`, `$add(1, 2)`
-- Instantiating classes: `$Player("Juan")`
-- Assigning to an existing variable: `$hp = 50`
-- Chained member calls: `$p.damage(30)`
+`$` is **required** to:
+- Read a variable’s value: `$hp`
+- Call a function: `$print(...)`, `$add(1, 2)`
+- Instantiate a class: `$Player("Juan")`
+- Assign to an existing variable: `$hp = 50`
+- Chain access: `$p.damage(30)`
 
-`$` is **not** used in:
-- Initial declarations (`var hp: int = 100`)
-- Accessing object fields following a dot (`$p.hp`, not `$p.$hp`)
+`$` is **not** used for:
+- The initial declaration (`var hp: int = 100`)
+- Accessing object fields after the dot (`$p.hp`, no `$p.$hp`)
 - Parameter names in function signatures
 
 ### Scope
 
-Variables declared inside a block (function, loop, conditional) are local to that block. Shadowing an outer variable inside an inner scope can cause ambiguity conflicts:
+Variables declared inside a block (function, loop, conditional) are local to that block. Redefining an outer variable inside an inner scope can cause conflicts:
 
 ```gbn
-var global_val: int = 100
+var global: int = 100
 
 func test() -> NULL
-    var global_val: int = 50  -- local redefinition
-    $print($global_val)       -- error: scope ambiguity
+    var global: int = 50  -- local redefinition
+    $print($global)       -- error: scope ambiguity
 end
 ```
 
-It is recommended to use distinct names for local variables coexisting with global variables of similar purpose.
+Use different names for local variables that coexist with global variables of the same name.
 
-### Use of `any`
+### Using `any`
 
-`any` disables type checking. Use it strictly when necessary, such as for variables receiving values of unknown type at declaration time.
+`any` disables type checking. Use it only when strictly necessary, such as for variables that store values whose types are unknown at declaration time.
 
-### Collection Initialization
+### Initializing Collections
 
-Always initialize arrays and dicts with `[]` or `{}` if you intend to manipulate them immediately. Using `NULL` initially and attempting to append items without first instantiating a container produces an error.
+Always initialize arrays and dictionaries with `[]` or `{}` if you plan to operate on them immediately. Using `NULL` as the initial value and then trying to add elements before assigning a real collection will cause an error.
 
 ```gbn
 -- Correct:
 var items: array[Item] = []
 $items.append($Item("Sword"))
 
--- Problematic if appending before assignment:
+-- Problematic if append is used before assigning a collection:
 var items: array[Item] = NULL
 $items.append($Item("Sword"))  -- error
 ```
 
 ### Closing Blocks with `end`
 
-Every block structure (`func`, `class`, `if`, `while`, `for`, `try`, `match`) must terminate with `end`. Unclosed blocks raise a `SyntaxError`.
+Every block (`func`, `class`, `if`, `while`, `for`, `try`, `match`) must be closed with `end`. An unclosed block raises a `SyntaxError`.
 
-> ! While writing code outside functions is supported, organizing most of your script logic into functions is strongly recommended.
+> ! Although code can be written outside functions, it is recommended that most of the script be organized into functions.
 
 ### Indentation
 
-> ! Indentation is not strictly required by the parser; however, keeping consistent indentation is recommended for readability. Furthermore, stripping indentation can marginally benefit performance in large scale codebases.
+> ! Indentation is not required by the language. It is still recommended for readability and organization; however, removing it may improve performance in large projects.

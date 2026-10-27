@@ -20,7 +20,7 @@ func _sys_env(_name: str, _default: str) -> str
 end
 
 func _sys_exit() -> NULL
-  $___sys._exit()
+  $___sys.__exit()
 end
 
 

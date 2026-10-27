@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import ast
 import builtins
+import os
 import re
 import struct
 import sys
@@ -90,6 +91,14 @@ class MemorySlot:
                                         # direct `$name = ...` assignment (immutable=True enforces
                                         # that), but a pointer's .set()/.value= is still allowed
                                         # through — see Pointer.set()/_kind() and assign().
+    inmutable_pending: bool = False    # True for a #inmutable slot that was declared with NULL:
+                                        # stays freely writable (direct assignment included, not
+                                        # just through a pointer) until the first time it's set to
+                                        # a non-NULL value — at that point assign() locks it
+                                        # (immutable=True, inmutable_pending=False) for good. Lets
+                                        # an #inmutable variable wait on a value that loads from
+                                        # somewhere else without needing pointer gymnastics just to
+                                        # set it that one first time.
 
 
 class MemoryError(Exception):
@@ -176,7 +185,9 @@ def _guess_error_column(line: str) -> int:
 
 
 def print_warning(message: str, file_path: Path | None = None, line: int | None = None) -> None:
-    """Print a warning message following parser format."""
+    """Print a warning message following parser format. Shown in yellow when stderr is
+    an interactive terminal (same isatty() guard as format_error_display(), so a
+    redirected/piped run never gets raw escape codes in its output)."""
     if not WARNINGS:
         return
     location = ""
@@ -184,10 +195,10 @@ def print_warning(message: str, file_path: Path | None = None, line: int | None 
         location = str(file_path)
     if line is not None:
         location += f":{line}"
-    if location:
-        print(f"Warning: {location}: {message}", file=sys.stderr)
-    else:
-        print(f"Warning: {message}", file=sys.stderr)
+    text = f"Warning: {location}: {message}" if location else f"Warning: {message}"
+    if sys.stderr.isatty():
+        text = f"{_ANSI_YELLOW}{text}{_ANSI_RESET}"
+    print(text, file=sys.stderr)
 
 
 def _wrap_parser_error(exc: Exception, file_path: Path | None = None, line: int | None = None, column: int | None = None) -> ParserError:
@@ -262,8 +273,106 @@ def format_error(exc: Exception) -> str:
     own type name instead of the generic word 'Error', so which of GybinScript's
     error classes actually happened is visible at a glance, not just that
     *something* went wrong. `str(exc)` still carries the file:line:column prefix
-    when `exc` is the usual ParserError wrapper (see ParserError.__str__)."""
+    when `exc` is the usual ParserError wrapper (see ParserError.__str__).
+
+    Deliberately PLAIN (no color/ANSI codes) — this is also what `catch -> e` stores
+    into the script's own variable (see execute_try_block), and a caught error is
+    exactly the kind of string a script might print, write to a file, or compare
+    against; escape codes have no business leaking into that. Use
+    format_error_display() instead for anything meant for a human reading the
+    terminal directly (the uncaught-error path in Gybin.py).
+    """
     return f"{_error_type_name(exc)}: {exc}"
+
+
+_ANSI_RESET = "\033[0m"
+_ANSI_UNDERLINE = "\033[4m"
+_ANSI_RED = "\033[31m"
+_ANSI_YELLOW = "\033[33m"
+
+# Palette used for error TYPE NAMES specifically — red and yellow are deliberately
+# excluded here: red is reserved for the error MESSAGE itself, yellow for warnings,
+# so a type name is never visually confused with either.
+_ERROR_TYPE_PALETTE: tuple[str, ...] = (
+    "\033[36m",    # cyan
+    "\033[35m",    # magenta
+    "\033[34m",    # blue
+    "\033[32m",    # green
+    "\033[96m",    # bright cyan
+    "\033[95m",    # bright magenta
+    "\033[94m",    # bright blue
+    "\033[92m",    # bright green
+    "\033[37m",    # white
+    "\033[97m",    # bright white
+)
+
+# Hand-picked for the error types this interpreter actually raises on purpose (see
+# the §14 table in the README) — chosen so related types read as related (IndexError/
+# KeyError/LookupError share a color family; the three GybinScript-specific types
+# under GybinError share another). Anything NOT listed here — any other builtin
+# Python exception type that ends up surfacing — still gets a color, just picked
+# deterministically from _ERROR_TYPE_PALETTE by _error_type_color() below, rather
+# than left uncolored.
+_ERROR_TYPE_COLORS: dict[str, str] = {
+    "NameError": "\033[96m",       # bright cyan
+    "TypeError": "\033[95m",       # bright magenta
+    "ValueError": "\033[94m",      # bright blue
+    "SyntaxError": "\033[32m",     # green
+    "AttributeError": "\033[35m",  # magenta
+    "IndexError": "\033[34m",      # blue
+    "KeyError": "\033[34m",        # blue
+    "LookupError": "\033[34m",     # blue
+    "GybinError": "\033[92m",      # bright green
+    "EventError": "\033[92m",      # bright green
+    "PointerError": "\033[92m",    # bright green
+    "BitWidthError": "\033[92m",   # bright green
+}
+
+
+def _error_type_color(type_name: str) -> str:
+    """ANSI color for an error type name: the curated table above for the types this
+    interpreter is actually designed to raise, or — for anything else — a color
+    picked deterministically (a stable character-sum, NOT Python's hash(), which is
+    randomized per-process for strings) from the same palette, so an uncommon error
+    type still gets a consistent, distinct-looking color across runs rather than no
+    color at all."""
+    known = _ERROR_TYPE_COLORS.get(type_name)
+    if known is not None:
+        return known
+    index = sum(ord(c) for c in type_name) % len(_ERROR_TYPE_PALETTE)
+    return _ERROR_TYPE_PALETTE[index]
+
+
+def format_error_display(exc: Exception) -> str:
+    """Colorized counterpart to format_error(), for a human reading the terminal
+    directly: the TYPE NAME in a color specific to that type (_error_type_color),
+    the FILE:LINE:COLUMN underlined, and the MESSAGE itself in red. Falls back to
+    plain format_error() when stderr isn't an interactive terminal (redirected to a
+    file, piped, ...) so escape codes never pollute a log."""
+    if not sys.stderr.isatty():
+        return format_error(exc)
+
+    type_name = _error_type_name(exc)
+    color = _error_type_color(type_name)
+
+    if isinstance(exc, ParserError):
+        location = ""
+        if exc.file_path is not None:
+            location = str(exc.file_path)
+        if exc.line is not None:
+            location += f":{exc.line}"
+        if exc.column is not None:
+            location += f":{exc.column}"
+        message = str(exc.args[0]) if exc.args else ""
+    else:
+        location = ""
+        message = str(exc)
+
+    pieces = [f"{color}{type_name}{_ANSI_RESET}:"]
+    if location:
+        pieces.append(f"{_ANSI_UNDERLINE}{location}{_ANSI_RESET}:")
+    pieces.append(f"{_ANSI_RED}{message}{_ANSI_RESET}")
+    return " ".join(pieces)
 
 
 def parse_catch_header(header: str) -> tuple[list[str], str | None]:
@@ -350,7 +459,7 @@ class MemoryManager:
         self.max_slots = max_slots
         self._slots: dict[str, MemorySlot] = {}
 
-    def allocate(self, name: str, type_name: str, value: Value, immutable: bool = False, max_size: int | None = None, element_type: str | None = None, is_ready: bool = False, defined_line: int | None = None, is_reserved: bool = False, source_bits: int | None = None, mutable_via_pointer: bool = False) -> None:
+    def allocate(self, name: str, type_name: str, value: Value, immutable: bool = False, max_size: int | None = None, element_type: str | None = None, is_ready: bool = False, defined_line: int | None = None, is_reserved: bool = False, source_bits: int | None = None, mutable_via_pointer: bool = False, inmutable_pending: bool = False) -> None:
         if len(self._slots) >= self.max_slots and name not in self._slots:
             raise MemoryError("Memory limit reached")
 
@@ -426,10 +535,21 @@ class MemoryManager:
                 # Only infer type if infer_type is available (it's defined later in the module)
                 if 'infer_type' in globals():
                     used_types = {infer_type(value)}
-            except:
+            except Exception:
+                # BUGFIX (reported by Katsuo, confirmed by regression test below): this was
+                # a bare `except:`, which — unlike `except Exception:` — also catches
+                # BaseException subclasses like SystemExit and KeyboardInterrupt. Since
+                # this runs inside allocate(), called for essentially every `var`/`const`
+                # and every function return value, a bare `except:` anywhere in that path
+                # silently swallowed `$exit()`/`$_sys_exit()` (sys.exit() raises SystemExit)
+                # the instant it propagated up through whatever allocate() call happened to
+                # be next on the stack — the program just kept running as if exit() had
+                # never been called, with no error, no trace, nothing. `except Exception:`
+                # still catches anything infer_type() could legitimately raise here, without
+                # ever intercepting a real exit or a Ctrl+C.
                 used_types = set()
 
-        self._slots[name] = MemorySlot(name=name,type_name=normalized_type, value=value, immutable=immutable, max_size=max_size, element_type=element_type, is_ready=is_ready, previous_value=value, allowed_types=allowed_types, used_types=used_types, defined_line=defined_line, is_reserved=is_reserved, mutable_via_pointer=mutable_via_pointer)
+        self._slots[name] = MemorySlot(name=name,type_name=normalized_type, value=value, immutable=immutable, max_size=max_size, element_type=element_type, is_ready=is_ready, previous_value=value, allowed_types=allowed_types, used_types=used_types, defined_line=defined_line, is_reserved=is_reserved, mutable_via_pointer=mutable_via_pointer, inmutable_pending=inmutable_pending)
 
         # Suspicious conversion warning
         if globals().get("WARNINGS") and "," not in normalized_type and value is not None:
@@ -457,6 +577,15 @@ class MemoryManager:
                     if slot.mutable_via_pointer:
                         raise TypeError(f"'{name}' is #inmutable: cannot be reassigned directly (only through a pointer)")
                     raise TypeError(f"Immutable constant: {name}")
+            elif slot.inmutable_pending and value is not None:
+                # A #inmutable slot declared with NULL stays freely writable (this direct
+                # path included) until its first non-NULL value — this IS that first real
+                # value, so lock it now, same as if it had been declared #inmutable with a
+                # real value from the start. Reassigning NULL -> NULL below doesn't reach
+                # here (value is None), so it stays pending/writable until something real
+                # actually arrives.
+                slot.immutable = True
+                slot.inmutable_pending = False
             target_type = type_name or slot.type_name
             normalized_type = self._validate_type_name(target_type)
 
@@ -1039,6 +1168,28 @@ def _builtin_preload(path: str) -> str:
 
 
 memory.allocate("preload", "any", _builtin_preload)
+
+
+def _builtin_exit(code: Value = 0) -> None:
+    """exit([code]): closes the program immediately and unconditionally. Uses
+    os._exit(), NOT Python's sys.exit() — sys.exit() only raises SystemExit, which is
+    just another exception that a try/catch (GBN's or an outer Python one) could
+    intercept or a cleanup handler could delay; os._exit() is a direct OS-level process
+    termination that nothing can catch, stop, or run cleanup around — "closes the
+    program at once", not "politely asks it to close". code (default 0, success) is
+    coerced to int; anything that can't be is treated as 0 rather than raising, since a
+    failure in the exit path itself defeats the entire point of an unconditional exit.
+    """
+    try:
+        exit_code = int(code) if code is not None else 0
+    except (TypeError, ValueError):
+        exit_code = 0
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(exit_code)
+
+
+memory.allocate("exit", "any", _builtin_exit)
 
 SHOW_MEMORY: bool = False
 SHOW_RETURNS: bool = False
@@ -2454,6 +2605,30 @@ def evaluate_ast(node: ast.AST, memory_manager: MemoryManager, current_dir: Path
             if len(node.args) != 1 or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
                 raise SyntaxError("Invalid pointer expression")
             return Pointer(node.args[0].value, memory_manager, current_dir)
+        if isinstance(node.func, ast.Name) and node.func.id == "eval":
+            # eval(text): evaluates `text` as a GBN expression IN THE CALLER'S OWN
+            # SCOPE — $x, a function call, anything evaluate_expression() can already
+            # handle — and returns the result. Special-cased here (rather than a plain
+            # registered builtin like preload/exit) specifically so it has memory_manager
+            # and current_dir on hand, the same way it would if it were just another
+            # line of the caller's own code; a normal builtin only ever sees the already-
+            # evaluated argument VALUES, never the scope they came from.
+            if len(node.args) != 1 or node.keywords:
+                raise TypeError("eval() expects exactly one argument: the expression text to evaluate")
+            expr_text = evaluate_ast(node.args[0], memory_manager, current_dir)
+            if not isinstance(expr_text, str):
+                raise TypeError(f"eval() expects a string, got {type(expr_text).__name__}")
+            # Always printed — not gated behind --w/WARNINGS like print_warning()'s other
+            # callers. eval() runs arbitrary text as code; that's worth flagging every
+            # time, not only when the person already opted into verbose warnings.
+            eval_warning_text = (
+                "Warning: eval() called — evaluating a string as code at runtime. "
+                "Never pass it text from an untrusted source."
+            )
+            if sys.stderr.isatty():
+                eval_warning_text = f"{_ANSI_YELLOW}{eval_warning_text}{_ANSI_RESET}"
+            print(eval_warning_text, file=sys.stderr)
+            return evaluate_expression(expr_text, memory_manager, current_dir)
         func = evaluate_ast(node.func, memory_manager, current_dir)
         args = [evaluate_ast(arg, memory_manager, current_dir) for arg in node.args]
         # Keyword arguments (`$name=value`, e.g. `set_modulate($r=0.6)`) work for BOTH
@@ -2825,7 +3000,17 @@ def assign_variable(source: str, memory_manager: MemoryManager, current_dir: Pat
     if name in memory_manager._slots and not is_ready:
         memory_manager.assign(name, value, base_type, source_bits=source_bits)
     else:
-        memory_manager.allocate(name, base_type, value, immutable=is_inmutable, max_size=max_size, element_type=element_type, is_ready=is_ready, defined_line=_CURRENT_LINE, is_reserved=is_reserved, source_bits=source_bits, mutable_via_pointer=is_inmutable)
+        # #inmutable declared with NULL starts out mutable (inmutable_pending=True) and
+        # locks itself the first time assign()/Pointer.set() gives it a real value —
+        # see MemorySlot.inmutable_pending and the matching check in assign(). Declared
+        # with a real value right away, it locks immediately as #inmutable always has.
+        value_is_null = value is None
+        memory_manager.allocate(
+            name, base_type, value, immutable=is_inmutable and not value_is_null,
+            max_size=max_size, element_type=element_type, is_ready=is_ready,
+            defined_line=_CURRENT_LINE, is_reserved=is_reserved, source_bits=source_bits,
+            mutable_via_pointer=is_inmutable, inmutable_pending=is_inmutable and value_is_null,
+        )
 
 
 def assign_constant(source: str, memory_manager: MemoryManager, current_dir: Path) -> None:

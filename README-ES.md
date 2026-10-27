@@ -2,7 +2,7 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/katsu-def/GybinScript)
 
-> **Versión:** 1.7  
+> **Versión:** 1.7.1  
 > **Extensión de archivos:** `.gbn`  
 > **Intérprete:** `Core/Gybin` \ `/usr/bin/Gybin`
 > **Ejecución:** `Gybin (Dirección de archivo: Mi_script.gbn)`
@@ -96,9 +96,9 @@ GybinScript tiene seis tipos primitivos y dos tipos de colección:
 
 | Tipo | Descripción | Ejemplo |
 |------|-------------|---------|
-| `int` | Entero | `20` |
-| `float` | Decimal | `3.1416` |
-| `str[N]` | Cadena con tamaño máximo N | `"Carlos"` |
+| `int[B]` | Entero con tamaño de bits máximo B | `20` |
+| `float[B]` | Decimal con tamaño de bits máximo B | `3.1416` |
+| `str[N]` | Cadena con tamaño máximo de caracteres N | `"Carlos"` |
 | `bool` | Booleano | `true` / `false` |
 | `any` | Sin restricción de tipo | — |
 | `NULL` | Valor nulo / ausencia de valor | `NULL` |
@@ -135,8 +135,8 @@ var otro: float [32] = 2.71      -- también se acepta un espacio antes del corc
 
 | Tipo | Anchos válidos |
 |------|-----------------|
-| `int[N]` | 8, 16, 32, 64 |
-| `float[N]` | 16, 32, 64 |
+| `int[B]` | 8, 16, 32, 64 |
+| `float[B]` | 16, 32, 64 |
 
 Un valor que no cabe en el ancho declarado es un error inmediato, con una sugerencia de un ancho que sí lo contendría:
 
@@ -255,6 +255,7 @@ $p.value = 99         -- OK — x ahora es 99
 ```
 
 Un `const` verdadero permanece completamente bloqueado incluso a través de un puntero; `#inmutable` es la versión que permite esa única vía de escape deliberada.
+También permite que su valor cambie, unicamente si su valor actual es `NULL`; permitiendo así cargar valores de dependencias en constantes sin recibir un error de cambio de valores a una constante. 
 
 ### `NULL` como valor vacío
 
@@ -1265,6 +1266,8 @@ Estas funciones están disponibles sin necesidad de importar nada:
 | `$file_append(ruta, contenido)` | Añade contenido al final de un archivo |
 | `$file_exists(ruta)` | Retorna `true` si el archivo existe |
 | `$preload(ruta)` | Lee un archivo como `$file_read`, pero recuerda su contenido — ver abajo |
+| `$eval()` | Ejecuta expresiones como cadenas de texto |
+| `$exit()` | Termina el programa en el momento |
 
 ### Argumentos con nombre de `$print`
 
@@ -1319,6 +1322,9 @@ $print($GBN.VERSION)
 | `$index_of(coleccion, elemento)` | Índice del elemento, o `-1` si no existe |
 | `$has_key(dict, clave)` | `true` si la clave existe en el diccionario |
 | `$merge_dict(dest, origen)` | Fusiona `origen` en `dest` y retorna el resultado |
+| `$flatten(colecciones)` | Fusiona una o varias colecciones en una sola |
+| `$unique(coleccion)` | Elimina elementos duplicados |
+| `$reverse(coleccion)` | Devuelve los elementos de una colección con orden inverso |
 
 ### Funciones de cadenas
 
@@ -1330,6 +1336,9 @@ $print($GBN.VERSION)
 | `$to_upper(texto)` | Convierte a mayúsculas |
 | `$starts_with(texto, prefijo)` | `true` si el texto empieza con el prefijo |
 | `$ends_with(texto, sufijo)` | `true` si el texto termina con el sufijo |
+| `$repeat(texto, rango)` | Repite `n` veces una cadena |
+| `$trim(texto)` | Elimina los espacios de una cadena |
+| `$replace(texto, viejo, nuevo)` | Reemplaza los textos de una cadena por otra |
 
 ### Clases vectoriales
 
@@ -1342,6 +1351,48 @@ $print($GBN.VERSION)
 | `$color(r, g, b, a)` | Vector de 4 valores flotantes, con valor minimo de 0 y máximo de 1, siendo `a` 1 por defecto si no se asigna ningún valor |
 
 > Puedes acceder en cualquier momento a los valores de los vectores `.x, .y, .z` o `.r, .g, .b, .a`
+> Todos los vectores poseen la función `.zero()`
+
+El vector `$color()` posee un argumento con nombre `$preset=`, opcional para colores por nombre en una enumeración, en lugar de con argumentos para todos los canales RGBA
+
+| Color | Equivalencia |
+|-------|--------------|
+| `$Color.YELLOW` | `$color(1.0, 1.0, 0.0, 1.0)` |
+| `$Color.BLUE` | `$color(0.0, 0.0, 1.0, 1.0)` |
+| `$Color.RED` | `$color(1.0, 0.0, 0.0, 1.0)` |
+| `$Color.GREEN` | `$color(0.0, 1.0, 0.0, 1.0)` |
+| `$Color.VIOLET` | `$color(0.93333334, 0.50980395, 0.93333334, 1.0)` |
+| `$Color.PURPLE` | `$color(0.627451, 0.1254902, 0.9411765, 1.0)` |
+| `$Color.MAGENTA` | `$color(1.0, 0.0, 1.0, 1.0)` |
+| `$Color.PINk` | `$color(1.0, 0.7529412, 0.79607844, 1.0)` |
+| `$Color.SKYBLUE` | `$color(0.5294118, 0.80784315, 0.92156863, 1.0)` |
+| `$Color.BLACK` | `$color(0.0, 0.0, 0.0, 1.0)` |
+| `$Color.WHITE` | `$color(1.0, 1.0, 1.0, 1.0)` |
+| `$Color.GRAY` | `$color(0.74509805, 0.74509805, 0.74509805, 1.0)` |
+| `$Color.ORANGE` | `$color(1.0, 0.64705884, 0.0, 1.0)` |
+| `$Color.LIME` | `$color(0.0, 1.0, 0.0, 1.0)` |
+
+### Datos
+
+| Función | Descripción |
+|---------|-------------|
+| `$is_array(valor)` | `true` si es una colección |
+| `$is_dict(valor)` | `true` si es un diccionario |
+| `$is_ptr(valor)` | `true` si es un puntero |
+| `$type(valor)` | Devuelve la clase del tipo de dato en el argumento |
+| `$type_of(valor)` | Como `$type` pero devuelve el valor de una enumeración para facilitar comparaciones |
+
+La enumeración `Type` contiene diferentes tipos de dato como valor usado para la función `$type_of` para hacer comparaciones:
+
+| Tipo | Equivalencia |
+|------|--------------|
+| `$Type.STRING` | 0 |
+| `$Type.INT` | 1 |
+| `$Type.FLOAT` | 2 |
+| `$Type.BOOL` | 3 |
+| `$Type.POINTER` | 4 |
+| `$Type.OBJECT` | 5 |
+| `$Type.null` | -1 (Por defecto en cualquier enumeración) |
 
 ### Delimitación de cantidades
 
