@@ -2,6 +2,8 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/katsu-def/GybinScript)
 
+> [Read this manual in Spanish (README-ES.md)](./README-ES.md)
+
 > **Version:** 1.7.1  
 > **File extension:** `.gbn`  
 > **Interpreter:** `Core/Gybin` \ `/usr/bin/Gybin`
